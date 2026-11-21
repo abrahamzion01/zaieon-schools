@@ -30,13 +30,22 @@ WHITE = "#FFFFFF"
 DARK = "#172033"
 MUTED = "#718096"
 BORDER = "#E5EAF2"
+# -------------------- TYPOGRAPHY --------------------
 
+FONT_FAMILY = "Segoe UI"
+
+FONT_SMALL = (FONT_FAMILY, 9)
+FONT_NORMAL = (FONT_FAMILY, 10)
+FONT_MEDIUM = (FONT_FAMILY, 11)
+FONT_SUBHEADING = (FONT_FAMILY, 13, "bold")
+FONT_HEADING = (FONT_FAMILY, 20, "bold")
+FONT_TITLE = (FONT_FAMILY, 24, "bold")
 
 # -------------------- MAIN WINDOW --------------------
 
 root = tk.Tk()
 root.title("ZAIEON Schools | School Management")
-root.geometry("1240x780")
+root.geometry("1600x900")
 root.minsize(1050, 680)
 root.configure(bg=BG)
 
@@ -47,17 +56,17 @@ style.configure(
     background=WHITE,
     foreground=DARK,
     fieldbackground=WHITE,
-    rowheight=38,
+    rowheight=42,
     borderwidth=0,
-    font=("Segoe UI", 10),
+    font=FONT_NORMAL,
 )
 style.configure(
     "Treeview.Heading",
     background="#F0F4FA",
-    foreground=MUTED,
+    foreground=NAVY,
     relief="flat",
-    font=("Segoe UI", 9, "bold"),
-    padding=(10, 12),
+    font=FONT_SMALL + ("bold",),
+    padding=(12, 14),
 )
 style.map(
     "Treeview",
@@ -80,8 +89,61 @@ topbar = tk.Frame(main_area, bg=WHITE, height=72)
 topbar.pack(side="top", fill="x")
 topbar.pack_propagate(False)
 
-page_area = tk.Frame(main_area, bg=BG)
-page_area.pack(fill="both", expand=True)
+# Scrollable main content area
+page_container = tk.Frame(main_area, bg=BG)
+page_container.pack(fill="both", expand=True)
+
+page_canvas = tk.Canvas(
+    page_container,
+    bg=BG,
+    highlightthickness=0
+)
+
+page_scrollbar = ttk.Scrollbar(
+    page_container,
+    orient="vertical",
+    command=page_canvas.yview
+)
+
+page_canvas.configure(yscrollcommand=page_scrollbar.set)
+
+page_scrollbar.pack(side="right", fill="y")
+page_canvas.pack(side="left", fill="both", expand=True)
+
+page_area = tk.Frame(page_canvas, bg=BG)
+
+page_window = page_canvas.create_window(
+    (0, 0),
+    window=page_area,
+    anchor="nw"
+)
+
+
+def update_scroll_region(event):
+    page_canvas.configure(
+        scrollregion=page_canvas.bbox("all")
+    )
+
+
+def resize_page_area(event):
+    page_canvas.itemconfigure(
+        page_window,
+        width=event.width
+    )
+
+
+page_area.bind("<Configure>", update_scroll_region)
+page_canvas.bind("<Configure>", resize_page_area)
+
+
+def scroll_page(event):
+    page_canvas.yview_scroll(
+        int(-1 * (event.delta / 120)),
+        "units"
+    )
+
+
+page_canvas.bind_all("<MouseWheel>", scroll_page)
 
 
 # -------------------- SHARED HELPERS --------------------
@@ -137,22 +199,44 @@ def make_card(parent, title, value, accent, note):
         bg=WHITE,
         highlightbackground=BORDER,
         highlightthickness=1,
-        padx=18,
-        pady=17,
+        padx=22,
+        pady=20,
     )
-    tk.Frame(card, bg=accent, height=4).pack(fill="x", side="top")
+
+    # Accent colour at the top
+    tk.Frame(
+        card,
+        bg=accent,
+        height=5
+    ).pack(fill="x", side="top")
+
+    # Card title
     tk.Label(
-        card, text=title.upper(), bg=WHITE, fg=MUTED,
-        font=("Segoe UI", 9, "bold")
-    ).pack(anchor="w", pady=(13, 7))
+        card,
+        text=title.upper(),
+        bg=WHITE,
+        fg=MUTED,
+        font=FONT_SMALL + ("bold",),
+    ).pack(anchor="w", pady=(15, 9))
+
+    # Main statistic
     tk.Label(
-        card, text=str(value), bg=WHITE, fg=DARK,
-        font=("Segoe UI", 25, "bold")
+        card,
+        text=str(value),
+        bg=WHITE,
+        fg=NAVY,
+        font=FONT_TITLE,
     ).pack(anchor="w")
+
+    # Supporting description
     tk.Label(
-        card, text=note, bg=WHITE, fg=MUTED,
-        font=("Segoe UI", 9)
-    ).pack(anchor="w", pady=(5, 0))
+        card,
+        text=note,
+        bg=WHITE,
+        fg=MUTED,
+        font=FONT_NORMAL,
+    ).pack(anchor="w", pady=(7, 0))
+
     return card
 
 
