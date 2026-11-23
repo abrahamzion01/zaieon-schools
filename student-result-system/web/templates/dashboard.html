@@ -148,40 +148,40 @@
 
             <div class="quick-actions">
 
-                <a href="#" class="action-card">
-                    <span>＋</span>
+                <a href="{{ url_for('register_student') }}" class="action-card">
+                    <span aria-hidden="true">&#43;</span>
                     <div>
                         <h3>Register Student</h3>
                         <p>Add a new student record.</p>
                     </div>
-                    <b>→</b>
+                    <b aria-hidden="true">&#8594;</b>
                 </a>
 
-                <a href="#" class="action-card"></a>
-                    <span>▤</span>
+                <a href="{{ url_for('manage_results') }}" class="action-card">
+                    <span aria-hidden="true">&#9637;</span>
                     <div>
                         <h3>Manage Results</h3>
                         <p>Enter and review student scores.</p>
                     </div>
-                    <b>→</b>
+                    <b aria-hidden="true">&#8594;</b>
                 </a>
 
-                <a href="#" class="action-card">
-                    <span>♧</span>
+                <a href="{{ url_for('manage_teachers') }}" class="action-card">
+                    <span aria-hidden="true">&#9823;</span>
                     <div>
                         <h3>Manage Teachers</h3>
                         <p>View and manage teachers.</p>
                     </div>
-                    <b>→</b>
+                    <b aria-hidden="true">&#8594;</b>
                 </a>
 
-                <a href="#" class="action-card">
-                    <span>◷</span>
+                <a href="{{ url_for('attendance_overview') }}" class="action-card">
+                    <span aria-hidden="true">&#9719;</span>
                     <div>
                         <h3>Attendance</h3>
                         <p>Monitor daily attendance.</p>
                     </div>
-                    <b>→</b>
+                    <b aria-hidden="true">&#8594;</b>
                 </a>
 
             </div>
