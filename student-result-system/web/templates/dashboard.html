@@ -1,0 +1,233 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Admin Dashboard | ZAIEON Schools</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body class="dashboard-body">
+
+    <aside class="sidebar">
+
+        <div class="sidebar-brand">
+            <img src="{{ url_for('static', filename='images/zaieon-schools-logo.png') }}"
+                 alt="ZAIEON Schools">
+            <div>
+                <h2>ZAIEON</h2>
+                <span>SCHOOLS</span>
+            </div>
+        </div>
+
+        <p class="nav-label">MAIN MENU</p>
+
+        <nav class="sidebar-nav">
+            <a href="#" class="nav-link active">
+                <span>▦</span> Dashboard
+            </a>
+
+            <a href="#" class="nav-link">
+                <span>♙</span> Students
+            </a>
+
+            <a href="#" class="nav-link">
+                <span>▤</span> Academic Results
+            </a>
+
+            <a href="#" class="nav-link">
+                <span>◷</span> Attendance
+            </a>
+
+            <a href="#" class="nav-link">
+                <span>♧</span> Teachers
+            </a>
+
+            <a href="#" class="nav-link">
+                <span>⚙</span> Settings
+            </a>
+        </nav>
+
+        <div class="sidebar-bottom">
+            <a href="{{ url_for('logout') }}" class="logout-link">
+                ⇥ Sign Out
+            </a>
+            <p>Powered by ZAIEON Technologies</p>
+        </div>
+
+    </aside>
+
+
+    <main class="dashboard-content">
+
+        <header class="dashboard-topbar">
+
+            <div>
+                <h1>Dashboard</h1>
+                <p>Welcome to your school management portal.</p>
+            </div>
+
+            <div class="admin-profile">
+                <div class="profile-avatar">A</div>
+                <div>
+                    <strong>{{ session.get('username', 'Administrator') }}</strong>
+                    <span>Administrator</span>
+                </div>
+            </div>
+
+        </header>
+
+
+        <section class="dashboard-welcome">
+            <div>
+                <span class="welcome-label">ADMINISTRATION OVERVIEW</span>
+                <h2>Welcome back, {{ session.get('username', 'Admin') }}!</h2>
+                <p>Here's an overview of your school's activities.</p>
+            </div>
+
+            <div class="welcome-icon">✦</div>
+        </section>
+
+
+        <section class="dashboard-section">
+
+            <div class="section-heading">
+                <div>
+                    <h2>School Overview</h2>
+                    <p>Your school's key statistics at a glance.</p>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+
+                <article class="stat-card">
+                    <div class="stat-icon students-icon">♙</div>
+                    <p>Total Students</p>
+                    <h3>—</h3>
+                    <span>Registered students</span>
+                </article>
+
+                <article class="stat-card">
+                    <div class="stat-icon results-icon">▤</div>
+                    <p>Results Entered</p>
+                    <h3>—</h3>
+                    <span>Students with results</span>
+                </article>
+
+                <article class="stat-card">
+                    <div class="stat-icon highest-icon">↗</div>
+                    <p>Highest Average</p>
+                    <h3>—</h3>
+                    <span>Academic performance</span>
+                </article>
+
+                <article class="stat-card">
+                    <div class="stat-icon lowest-icon">↘</div>
+                    <p>Lowest Average</p>
+                    <h3>—</h3>
+                    <span>Academic performance</span>
+                </article>
+
+            </div>
+
+        </section>
+
+
+        <section class="dashboard-section">
+
+            <div class="section-heading">
+                <div>
+                    <h2>Quick Actions</h2>
+                    <p>Frequently used administrative functions.</p>
+                </div>
+            </div>
+
+            <div class="quick-actions">
+
+                <a href="#" class="action-card">
+                    <span>＋</span>
+                    <div>
+                        <h3>Register Student</h3>
+                        <p>Add a new student record.</p>
+                    </div>
+                    <b>→</b>
+                </a>
+
+                <a href="#" class="action-card">
+                    <span>▤</span>
+                    <div>
+                        <h3>Manage Results</h3>
+                        <p>Enter and review student scores.</p>
+                    </div>
+                    <b>→</b>
+                </a>
+
+                <a href="#" class="action-card">
+                    <span>♧</span>
+                    <div>
+                        <h3>Manage Teachers</h3>
+                        <p>View and manage teachers.</p>
+                    </div>
+                    <b>→</b>
+                </a>
+
+                <a href="#" class="action-card">
+                    <span>◷</span>
+                    <div>
+                        <h3>Attendance</h3>
+                        <p>Monitor daily attendance.</p>
+                    </div>
+                    <b>→</b>
+                </a>
+
+            </div>
+
+        </section>
+
+
+        <section class="dashboard-section">
+
+            <div class="section-heading">
+                <div>
+                    <h2>Recent Student Registrations</h2>
+                    <p>Recently added student records.</p>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Student Name</th>
+                            <th>Registration Number</th>
+                            <th>Average</th>
+                            <th>Grade</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        <tr>
+                            <td colspan="4" class="empty-state">
+                                Student records will appear here.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </section>
+
+
+        <footer class="dashboard-footer">
+            <p>© 2026 ZAIEON Schools. All rights reserved.</p>
+            <p>Empowering Schools. Developing Futures.</p>
+        </footer>
+
+    </main>
+
+</body>
+</html>
