@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }} | ZAIEON Schools</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-body">
+    <aside class="sidebar">
+        <a class="sidebar-brand" href="{{ url_for('dashboard') }}">
+            <img src="{{ url_for('static', filename='images/zaieon-schools-logo.png') }}" alt="">
+            <div>
+                <h2>ZAIEON</h2>
+                <span>SCHOOLS</span>
+            </div>
+        </a>
+
+        <p class="nav-label">MAIN MENU</p>
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('dashboard') }}" class="nav-link"><span>▦</span> Dashboard</a>
+            <a href="{{ url_for('register_student') }}" class="nav-link"><span>♙</span> Students</a>
+            <a href="{{ url_for('manage_results') }}" class="nav-link {{ 'active' if page == 'results' else '' }}"><span>▤</span> Academic Results</a>
+            <a href="{{ url_for('attendance_overview') }}" class="nav-link {{ 'active' if page == 'attendance' else '' }}"><span>◷</span> Attendance</a>
+            <a href="{{ url_for('manage_teachers') }}" class="nav-link {{ 'active' if page == 'teachers' else '' }}"><span>♧</span> Teachers</a>
+        </nav>
+
+        <div class="sidebar-bottom">
+            <a href="{{ url_for('logout') }}" class="logout-link">⇥ Sign Out</a>
+            <p>Powered by ZAIEON Technologies</p>
+        </div>
+    </aside>
+
+    <main class="dashboard-content">
+        <header class="dashboard-topbar">
+            <div>
+                <h1>{{ page_title }}</h1>
+                <p>{{ page_description }}</p>
+            </div>
+            <div class="admin-profile">
+                <div class="profile-avatar">A</div>
+                <div>
+                    <strong>{{ session.get('username', 'Administrator') }}</strong>
+                    <span>Administrator</span>
+                </div>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="flash-message">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% if page == 'results' %}
+            <section class="management-panel">
+                <h2>Enter student scores</h2>
+                <p>Scores must be between 0 and 100 for each subject.</p>
+                {% if students %}
+                    <form class="management-form" method="post" action="{{ url_for('manage_results') }}">
+                        <div class="form-field">
+                            <label for="result-student">Student</label>
+                            <select id="result-student" name="reg_no" required>
+                                <option value="">Select a student</option>
+                                {% for student in students %}
+                                    <option value="{{ student.reg_no }}" {{ 'selected' if selected_reg == student.reg_no else '' }}>
+                                        {{ student.name }} ({{ student.reg_no }})
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% for subject in subjects %}
+                            <div class="form-field">
+                                <label for="score-{{ loop.index }}">{{ subject }}</label>
+                                <input id="score-{{ loop.index }}" type="number" name="{{ subject }}" min="0" max="100" step="0.01" value="{{ selected_student.get('subjects', {}).get(subject, '') if selected_student else '' }}" required>
+                            </div>
+                        {% endfor %}
+                        <button class="management-submit" type="submit">Save Results</button>
+                    </form>
+                {% else %}
+                    <p class="management-empty">No students are registered yet. Register a student before entering results.</p>
+                {% endif %}
+            </section>
+
+            <section class="management-panel">
+                <h2>Student results</h2>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>Student</th><th>Registration Number</th><th>Class</th><th>Total</th><th>Average</th><th>Grade</th><th></th></tr></thead>
+                        <tbody>
+                            {% for student in students %}
+                                <tr>
+                                    <td>{{ student.name }}</td>
+                                    <td>{{ student.reg_no }}</td>
+                                    <td>{{ student.get('class_name', '—') }}</td>
+                                    <td>{{ student.total if student.total is not none else '—' }}</td>
+                                    <td>{{ student.average|round(2) if student.average is not none else '—' }}</td>
+                                    <td>{{ student.grade if student.grade else '—' }}</td>
+                                    <td><a class="inline-action" href="{{ url_for('manage_results', selected=student.reg_no) }}">Edit scores</a></td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="7" class="empty-state">No student results to show.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        {% elif page == 'teachers' %}
+            <section class="management-panel">
+                <h2>Assign a class</h2>
+                {% if teachers %}
+                    <form class="management-form" method="post" action="{{ url_for('manage_teachers') }}">
+                        <div class="form-field">
+                            <label for="teacher-id">Teacher</label>
+                            <select id="teacher-id" name="teacher_id" required>
+                                <option value="">Select a teacher</option>
+                                {% for teacher in teachers %}
+                                    <option value="{{ teacher.id }}">{{ teacher.username }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label for="teacher-class">Class</label>
+                            <select id="teacher-class" name="class_name" required>
+                                <option value="">Select a class</option>
+                                {% for class_name in classes %}
+                                    <option value="{{ class_name }}">{{ class_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button class="management-submit" type="submit">Assign Class</button>
+                    </form>
+                {% else %}
+                    <p class="management-empty">No teacher accounts are available to assign.</p>
+                {% endif %}
+            </section>
+
+            <section class="management-panel">
+                <h2>Current teacher assignments</h2>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>Teacher</th><th>Class</th></tr></thead>
+                        <tbody>
+                            {% for assignment in assignments %}
+                                <tr><td>{{ assignment.username }}</td><td>{{ assignment.class_name }}</td></tr>
+                            {% else %}
+                                <tr><td colspan="2" class="empty-state">No teacher classes have been assigned yet.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        {% elif page == 'attendance' %}
+            <section class="management-panel">
+                <h2>Daily attendance</h2>
+                <form class="management-form" method="get" action="{{ url_for('attendance_overview') }}">
+                    <div class="form-field">
+                        <label for="attendance-date">Date</label>
+                        <input id="attendance-date" type="date" name="date" value="{{ attendance_date }}" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="attendance-class">Class</label>
+                        <select id="attendance-class" name="class_name">
+                            <option value="">All classes</option>
+                            {% for class_name in classes %}
+                                <option value="{{ class_name }}" {{ 'selected' if selected_class == class_name else '' }}>{{ class_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button class="management-submit" type="submit">View Attendance</button>
+                </form>
+            </section>
+
+            <section class="management-panel">
+                <h2>Attendance records</h2>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>Registration Number</th><th>Class</th><th>Status</th><th>Marked By</th></tr></thead>
+                        <tbody>
+                            {% for record in attendance_records %}
+                                <tr><td>{{ record.reg_no }}</td><td>{{ record.class_name }}</td><td>{{ record.status }}</td><td>{{ record.marked_by or '—' }}</td></tr>
+                            {% else %}
+                                <tr><td colspan="4" class="empty-state">No attendance has been recorded for this selection.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        {% endif %}
+
+        <footer class="dashboard-footer">
+            <p>© 2026 ZAIEON Schools. All rights reserved.</p>
+            <p>Empowering Schools. Developing Futures.</p>
+        </footer>
+    </main>
+</body>
+</html>
