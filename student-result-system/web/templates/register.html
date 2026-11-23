@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register Student | ZAIEON Schools</title>
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <header>
+        <img src="{{ url_for('static', filename='images/zaieon-schools-logo.png') }}"
+             alt="ZAIEON Schools Logo">
+        <h1>ZAIEON Schools</h1>
+        <p>Learn • Achieve • Excel.</p>
+    </header>
+
+    <main class="login-main">
+        <div class="login-card">
+            <h2>Register New Student</h2>
+            <p class="login-description">
+                Create a student record and login account.
+            </p>
+
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="flash-message">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% if temporary_password %}
+                <div class="flash-message">
+                    <strong>Student registered successfully!</strong>
+                    <p>Name: {{ student_name }}</p>
+                    <p>Username: {{ username }}</p>
+                    <p>Temporary password: <strong>{{ temporary_password }}</strong></p>
+                    <p>Share these credentials securely. The student must change the password on first login.</p>
+                </div>
+
+                <a href="{{ url_for('register_student') }}"
+                   class="get-started-btn">
+                    Register Another Student
+                </a>
+            {% else %}
+                <form method="POST"
+                      action="{{ url_for('register_student') }}">
+
+                    <label for="name">Student Full Name</label>
+                    <input type="text" id="name" name="name"
+                           placeholder="Enter student's full name" required>
+
+                    <label for="reg_no">Registration Number</label>
+                    <input type="text" id="reg_no" name="reg_no"
+                           placeholder="Enter registration number" required>
+
+                    <label for="class_name">Class</label>
+                    <select id="class_name" name="class_name" required>
+                        <option value="">Select class</option>
+                        <option>Primary 1</option>
+                        <option>Primary 2</option>
+                        <option>Primary 3</option>
+                        <option>Primary 4</option>
+                        <option>Primary 5</option>
+                        <option>Primary 6</option>
+                        <option>JSS 1</option>
+                        <option>JSS 2</option>
+                        <option>JSS 3</option>
+                        <option>SS 1</option>
+                        <option>SS 2</option>
+                        <option>SS 3</option>
+                    </select>
+
+                    <label for="username">Student Username</label>
+                    <input type="text" id="username" name="username"
+                           placeholder="Create a login username" required>
+
+                    <button type="submit">Register Student</button>
+                </form>
+            {% endif %}
+
+            <a href="{{ url_for('dashboard') }}" class="back-link">
+                Back to Dashboard
+            </a>
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2026 ZAIEON Schools. All rights reserved.</p>
+        <p>Powered by ZAIEON Technologies</p>
+    </footer>
+
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZAIEON Schools | Empowering Schools. Developing Futures.</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <header>
+        <img src="{{ url_for('static', filename='images/zaieon-schools-logo.png') }}"
+             alt="ZAIEON Schools Logo">
+
+        <h1>ZAIEON Schools</h1>
+        <p>Learn • Achieve • Excel.</p>
+    </header>
+
+    <main>
+        <h2>Empowering Schools. Developing Futures.</h2>
+
+        <p>
+            A smarter way to manage student records, academic results,
+            attendance, and school activities.
+        </p>
+
+        <a href="{{ url_for('login') }}" class="get-started-btn">
+             Get Started
+        </a>
+    </main>
+
+    <footer>
+        <p>&copy; 2026 ZAIEON Schools. All rights reserved.</p>
+        <p>Powered by ZAIEON Technologies</p>
+    </footer>
+
+</body>
+</html>
