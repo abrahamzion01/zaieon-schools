@@ -21,6 +21,7 @@
             <a href="{{ url_for('dashboard') }}" class="nav-link"><span>▦</span> Dashboard</a>
             <a href="{{ url_for('register_student') }}" class="nav-link"><span>♙</span> Students</a>
             <a href="{{ url_for('manage_results') }}" class="nav-link {{ 'active' if page == 'results' else '' }}"><span>▤</span> Academic Results</a>
+            <a href="{{ url_for('manage_terms') }}" class="nav-link {{ 'active' if page == 'terms' else '' }}"><span>▦</span> Academic Terms</a>
             <a href="{{ url_for('attendance_overview') }}" class="nav-link {{ 'active' if page == 'attendance' else '' }}"><span>◷</span> Attendance</a>
             <a href="{{ url_for('manage_teachers') }}" class="nav-link {{ 'active' if page == 'teachers' else '' }}"><span>♧</span> Teachers</a>
         </nav>
@@ -56,21 +57,46 @@
 
         {% if page == 'results' %}
             <section class="management-panel">
-                <h2>Enter student scores</h2>
-                <p>Scores must be between 0 and 100 for each subject.</p>
-                {% if students %}
-                    <form class="management-form" method="post" action="{{ url_for('manage_results') }}">
+                {% if terms %}
+                    <h2>Choose a term</h2>
+                    <form class="management-form" method="get" action="{{ url_for('manage_results') }}">
+                        <div class="form-field">
+                            <label for="result-term">Academic term</label>
+                            <select id="result-term" name="term_id" required>
+                                {% for term in terms %}
+                                    <option value="{{ term.id }}" {{ 'selected' if selected_term_id == term.id else '' }}>{{ term.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button class="management-submit" type="submit">View Term</button>
+                    </form>
+                    <h2>Enter student scores</h2>
+                    <p>Scores are saved for {{ academic_year_name }} and the selected term. Each score must be from 0 to 100.</p>
+                {% else %}
+                    <h2>Set up an academic term</h2>
+                    <p>Add the term dates for the current academic year before entering results.</p>
+                    <a class="inline-action" href="{{ url_for('manage_terms') }}">Set Up Terms</a>
+                {% endif %}
+                {% if terms and students %}
+                    <form class="management-form" method="get" action="{{ url_for('manage_results') }}">
+                        <input type="hidden" name="term_id" value="{{ selected_term_id }}">
                         <div class="form-field">
                             <label for="result-student">Student</label>
-                            <select id="result-student" name="reg_no" required>
+                            <select id="result-student" name="selected" required>
                                 <option value="">Select a student</option>
                                 {% for student in students %}
                                     <option value="{{ student.reg_no }}" {{ 'selected' if selected_reg == student.reg_no else '' }}>
-                                        {{ student.name }} ({{ student.reg_no }})
+                                        {{ student.name }} ({{ student.reg_no }}) — {{ student.class_name }}
                                     </option>
                                 {% endfor %}
                             </select>
                         </div>
+                        <button class="management-submit" type="submit">Load Student</button>
+                    </form>
+                    {% if selected_student %}
+                    <form class="management-form" method="post" action="{{ url_for('manage_results') }}">
+                        <input type="hidden" name="term_id" value="{{ selected_term_id }}">
+                        <input type="hidden" name="reg_no" value="{{ selected_student.reg_no }}">
                         {% for subject in subjects %}
                             <div class="form-field">
                                 <label for="score-{{ loop.index }}">{{ subject }}</label>
@@ -79,18 +105,19 @@
                         {% endfor %}
                         <button class="management-submit" type="submit">Save Results</button>
                     </form>
-                {% else %}
-                    <p class="management-empty">No students are registered yet. Register a student before entering results.</p>
+                    {% endif %}
+                {% elif terms %}
+                    <p class="management-empty">No students are enrolled in the current academic year yet. Register a student before entering results.</p>
                 {% endif %}
             </section>
 
             <section class="management-panel">
-                <h2>Student results</h2>
+                <h2>Student results{% if terms %} — {{ terms|selectattr('id', 'equalto', selected_term_id)|map(attribute='name')|first }}{% endif %}</h2>
                 <div class="table-container">
                     <table>
                         <thead><tr><th>Student</th><th>Registration Number</th><th>Class</th><th>Total</th><th>Average</th><th>Grade</th><th></th></tr></thead>
                         <tbody>
-                            {% for student in students %}
+                            {% for student in results %}
                                 <tr>
                                     <td>{{ student.name }}</td>
                                     <td>{{ student.reg_no }}</td>
@@ -98,10 +125,50 @@
                                     <td>{{ student.total if student.total is not none else '—' }}</td>
                                     <td>{{ student.average|round(2) if student.average is not none else '—' }}</td>
                                     <td>{{ student.grade if student.grade else '—' }}</td>
-                                    <td><a class="inline-action" href="{{ url_for('manage_results', selected=student.reg_no) }}">Edit scores</a></td>
+                                    <td><a class="inline-action" href="{{ url_for('manage_results', selected=student.reg_no, term_id=selected_term_id) }}">Edit scores</a></td>
                                 </tr>
                             {% else %}
                                 <tr><td colspan="7" class="empty-state">No student results to show.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        {% elif page == 'terms' %}
+            <section class="management-panel">
+                <h2>Add a term to {{ academic_year.academic_year_name }}</h2>
+                <p>Term dates must fit within the academic year and cannot overlap another term.</p>
+                <form class="management-form" method="post" action="{{ url_for('manage_terms') }}">
+                    <div class="form-field">
+                        <label for="term-name">Term name</label>
+                        <input id="term-name" name="name" type="text" placeholder="First Term" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="term-sequence">Order</label>
+                        <input id="term-sequence" name="sequence" type="number" min="1" step="1" placeholder="1" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="term-start">Start date</label>
+                        <input id="term-start" name="start_date" type="date" min="{{ academic_year.start_date }}" max="{{ academic_year.end_date }}" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="term-end">End date</label>
+                        <input id="term-end" name="end_date" type="date" min="{{ academic_year.start_date }}" max="{{ academic_year.end_date }}" required>
+                    </div>
+                    <button class="management-submit" type="submit">Add Term</button>
+                </form>
+            </section>
+            <section class="management-panel">
+                <h2>Terms for this year</h2>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>Order</th><th>Term</th><th>Start date</th><th>End date</th></tr></thead>
+                        <tbody>
+                            {% for term in terms %}
+                                <tr><td>{{ term.sequence }}</td><td>{{ term.name }}</td><td>{{ term.start_date }}</td><td>{{ term.end_date }}</td></tr>
+                            {% else %}
+                                <tr><td colspan="4" class="empty-state">No terms have been added for this academic year.</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>

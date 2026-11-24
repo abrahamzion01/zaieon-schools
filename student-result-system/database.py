@@ -238,6 +238,24 @@ def initialize_database():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS student_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            enrollment_id INTEGER NOT NULL,
+            term_id INTEGER NOT NULL,
+            subject TEXT NOT NULL,
+            score REAL NOT NULL CHECK (score >= 0 AND score <= 100),
+            recorded_by INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (enrollment_id, term_id, subject),
+            CHECK (length(trim(subject)) > 0),
+            FOREIGN KEY (enrollment_id) REFERENCES enrollments(id) ON DELETE CASCADE,
+            FOREIGN KEY (term_id) REFERENCES terms(id) ON DELETE CASCADE,
+            FOREIGN KEY (recorded_by) REFERENCES users(id)
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS attendance (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             reg_no TEXT NOT NULL,
@@ -512,6 +530,120 @@ def get_school_classes(school_id):
             WHERE school_id = ? AND is_active = 1
             ORDER BY sort_order, name
         """, (school_id,)).fetchall()
+
+
+def get_terms_for_year(academic_year_id):
+    with _connection_scope() as connection:
+        return connection.execute("""
+            SELECT id, name, sequence, start_date, end_date
+            FROM terms
+            WHERE academic_year_id = ?
+            ORDER BY sequence, start_date
+        """, (academic_year_id,)).fetchall()
+
+
+def create_student_term_results(school_id, academic_year_id, registration_number,
+                                term_id, scores, recorded_by):
+    """Save a full subject score set for a student's current-year enrollment."""
+    with _connection_scope() as connection:
+        enrollment = connection.execute("""
+            SELECT enrollments.id, students.id AS student_id,
+                   students.full_name, students.registration_number
+            FROM enrollments
+            JOIN students ON students.id = enrollments.student_id
+                         AND students.school_id = enrollments.school_id
+            WHERE enrollments.school_id = ?
+              AND enrollments.academic_year_id = ?
+              AND enrollments.status = 'active'
+              AND lower(students.registration_number) = lower(?)
+        """, (school_id, academic_year_id, registration_number)).fetchone()
+        term = connection.execute("""
+            SELECT terms.id FROM terms
+            JOIN academic_years
+              ON academic_years.id = terms.academic_year_id
+            WHERE terms.id = ?
+              AND academic_years.school_id = ?
+              AND academic_years.id = ?
+        """, (term_id, school_id, academic_year_id)).fetchone()
+        if enrollment is None:
+            raise ValueError("Choose a student enrolled in the current academic year.")
+        if term is None:
+            raise ValueError("Choose a term in the current academic year.")
+
+        for subject, score in scores.items():
+            connection.execute("""
+                INSERT INTO student_results (
+                    enrollment_id, term_id, subject, score, recorded_by
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(enrollment_id, term_id, subject) DO UPDATE SET
+                    score = excluded.score,
+                    recorded_by = excluded.recorded_by,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (enrollment["id"], term_id, subject, score, recorded_by))
+        return {"name": enrollment["full_name"],
+                "reg_no": enrollment["registration_number"]}
+
+
+def get_students_for_year(school_id, academic_year_id):
+    with _connection_scope() as connection:
+        return connection.execute("""
+            SELECT students.id AS student_id, enrollments.id AS enrollment_id,
+                   students.full_name AS name,
+                   students.registration_number AS reg_no,
+                   school_classes.name AS class_name
+            FROM enrollments
+            JOIN students ON students.id = enrollments.student_id
+                         AND students.school_id = enrollments.school_id
+            JOIN school_classes ON school_classes.id = enrollments.class_id
+                                AND school_classes.school_id = enrollments.school_id
+            WHERE enrollments.school_id = ?
+              AND enrollments.academic_year_id = ?
+              AND enrollments.status = 'active'
+              AND students.is_active = 1
+            ORDER BY school_classes.sort_order, school_classes.name,
+                     students.full_name
+        """, (school_id, academic_year_id)).fetchall()
+
+
+def get_results_for_term(school_id, academic_year_id, term_id):
+    """Return enrolled students with their subject marks and term totals."""
+    with _connection_scope() as connection:
+        rows = connection.execute("""
+            SELECT enrollments.id AS enrollment_id,
+                   students.full_name AS name,
+                   students.registration_number AS reg_no,
+                   school_classes.name AS class_name,
+                   student_results.subject, student_results.score
+            FROM enrollments
+            JOIN students ON students.id = enrollments.student_id
+                         AND students.school_id = enrollments.school_id
+            JOIN school_classes ON school_classes.id = enrollments.class_id
+                                AND school_classes.school_id = enrollments.school_id
+            LEFT JOIN student_results
+              ON student_results.enrollment_id = enrollments.id
+             AND student_results.term_id = ?
+            WHERE enrollments.school_id = ?
+              AND enrollments.academic_year_id = ?
+              AND enrollments.status = 'active'
+              AND students.is_active = 1
+            ORDER BY school_classes.sort_order, school_classes.name,
+                     students.full_name, student_results.subject
+        """, (term_id, school_id, academic_year_id)).fetchall()
+
+    results = {}
+    for row in rows:
+        result = results.setdefault(row["enrollment_id"], {
+            "name": row["name"], "reg_no": row["reg_no"],
+            "class_name": row["class_name"], "subjects": {},
+        })
+        if row["subject"] is not None:
+            result["subjects"][row["subject"]] = row["score"]
+    for result in results.values():
+        scores = list(result["subjects"].values())
+        result["total"] = sum(scores) if scores else None
+        result["average"] = sum(scores) / len(scores) if scores else None
+        result["grade"] = None
+    return list(results.values())
 
 
 def get_teachers_for_school(school_id):

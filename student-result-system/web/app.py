@@ -189,17 +189,19 @@ def select_school():
 @app.route("/results", methods=["GET", "POST"])
 @admin_required
 def manage_results():
+    school_id = session["school_id"]
+    school = database.get_school_context(school_id)
+    terms = database.get_terms_for_year(school["academic_year_id"])
+    students = database.get_students_for_year(
+        school_id, school["academic_year_id"]
+    )
+
     if request.method == "POST":
         registration = request.form.get("reg_no", "").strip()
-        student = next(
-            (record for record in main.students
-             if record.get("reg_no", "").lower() == registration.lower()),
-            None
-        )
-
-        if student is None:
-            flash("Select a registered student before entering scores.")
-            return redirect(url_for("manage_results"))
+        selected_term = request.form.get("term_id", "")
+        if not terms:
+            flash("Set up an academic term before entering results.")
+            return redirect(url_for("manage_terms"))
 
         scores = {}
         try:
@@ -210,36 +212,89 @@ def manage_results():
                 scores[subject] = score
         except ValueError:
             flash("Enter a valid score from 0 to 100 for every subject.")
-            return redirect(url_for("manage_results", selected=registration))
+            return redirect(url_for(
+                "manage_results", selected=registration, term_id=selected_term
+            ))
 
-        total = sum(scores.values())
-        average = total / len(main.SUBJECTS)
-        student.update({
-            "subjects": scores,
-            "total": total,
-            "average": average,
-            "grade": main.calculate_grade(average)
-        })
-        main.save_students()
+        try:
+            student = database.create_student_term_results(
+                school_id, school["academic_year_id"], registration,
+                selected_term, scores, session["user_id"]
+            )
+        except (ValueError, sqlite3.IntegrityError) as error:
+            flash(str(error) or "Unable to save these results.")
+            return redirect(url_for(
+                "manage_results", selected=registration, term_id=selected_term
+            ))
         flash(f"Results saved for {student['name']}.")
-        return redirect(url_for("manage_results", selected=registration))
+        return redirect(url_for(
+            "manage_results", selected=registration, term_id=selected_term
+        ))
 
     selected_reg = request.args.get("selected", "")
+    try:
+        selected_term_id = int(request.args.get("term_id", ""))
+    except ValueError:
+        selected_term_id = None
+    if selected_term_id not in {term["id"] for term in terms}:
+        selected_term_id = terms[0]["id"] if terms else None
+    results = database.get_results_for_term(
+        school_id, school["academic_year_id"], selected_term_id
+    ) if selected_term_id else []
     selected_student = next(
-        (record for record in main.students
-         if record.get("reg_no", "").lower() == selected_reg.lower()),
+        (student for student in results
+         if student["reg_no"].lower() == selected_reg.lower()),
         None
     )
+    for student in results:
+        if student["average"] is not None:
+            student["grade"] = main.calculate_grade(student["average"])
 
     return render_template(
         "admin_section.html",
         page="results",
         page_title="Manage Results",
         page_description="Enter scores and review student performance.",
-        students=main.students,
+        academic_year_name=school["academic_year_name"],
+        students=students,
+        terms=terms,
+        selected_term_id=selected_term_id,
+        results=results,
         subjects=main.SUBJECTS,
         selected_reg=selected_reg,
         selected_student=selected_student
+    )
+
+
+@app.route("/terms", methods=["GET", "POST"])
+@admin_required
+def manage_terms():
+    school = database.get_school_context(session["school_id"])
+    if request.method == "POST":
+        try:
+            database.create_term(
+                school["academic_year_id"],
+                request.form.get("name", ""),
+                request.form.get("sequence", ""),
+                request.form.get("start_date", ""),
+                request.form.get("end_date", ""),
+            )
+        except (ValueError, sqlite3.IntegrityError) as error:
+            message = str(error)
+            if isinstance(error, sqlite3.IntegrityError):
+                message = "That term name or sequence is already in use."
+            flash(message)
+        else:
+            flash("Academic term added.")
+            return redirect(url_for("manage_terms"))
+
+    return render_template(
+        "admin_section.html",
+        page="terms",
+        page_title="Academic Terms",
+        page_description=f"Set terms for {school['academic_year_name']}.",
+        academic_year=school,
+        terms=database.get_terms_for_year(school["academic_year_id"]),
     )
 
 
