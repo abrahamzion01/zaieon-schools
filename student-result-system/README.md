@@ -62,8 +62,11 @@ The first administrator sets up the school and current academic year in the web
 app. New student registration now creates the login, student profile, and class
 enrollment together; teacher assignments are linked to a school, class, and
 academic year. Existing `students.json` records and legacy attendance and
-teacher-class tables are preserved. The web results screen still uses the JSON
-record file as a compatibility mirror while results are migrated separately.
+teacher-class tables are preserved. Web results are stored in SQLite per
+student enrollment and academic term; result entry is limited to students
+enrolled in the school's current academic year. Legacy JSON student records
+remain available to the desktop app and have not yet been imported into the
+school-scoped enrollment model.
 
 ## Project Structure
 

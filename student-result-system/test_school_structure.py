@@ -27,7 +27,7 @@ def test_school_structure_schema_initializes_idempotently(school_database):
     assert {
         "schools", "academic_years", "terms", "school_classes",
         "students", "enrollments", "school_memberships",
-        "teacher_class_assignments",
+        "teacher_class_assignments", "student_results",
     } <= tables
 
 

@@ -115,9 +115,28 @@ def test_first_admin_sets_up_school_and_academic_year(tmp_path, monkeypatch):
     assert database.get_school_context(school_id)["academic_year_name"] == "2026/2027"
 
 
-def test_results_page_saves_valid_scores(admin_client, tmp_path):
+def test_results_page_saves_valid_scores(admin_client):
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+    school = database.get_school_context(school_id)
+    school_class = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "Primary 1"
+    )
+    student_id = database.create_student(
+        school_id, "REG-TEST-1", "Test Student"
+    )
+    database.enroll_student(
+        student_id, school_class["id"], school["academic_year_id"],
+        "2026-09-02"
+    )
+    term_id = database.create_term(
+        school["academic_year_id"], "First Term", 1,
+        "2026-09-01", "2026-12-18"
+    )
     response = admin_client.post("/results", data={
         "reg_no": "REG-TEST-1",
+        "term_id": str(term_id),
         "Mathematics": "90",
         "English": "80",
         "Biology": "70",
@@ -125,12 +144,39 @@ def test_results_page_saves_valid_scores(admin_client, tmp_path):
 
     assert response.status_code == 200
     assert b"Results saved for Test Student." in response.data
-    assert main.students[0]["total"] == 240
-    assert main.students[0]["average"] == 80
-    assert main.students[0]["grade"] == "A"
+    results = database.get_results_for_term(
+        school_id, school["academic_year_id"], term_id
+    )
+    assert results[0]["subjects"] == {
+        "Biology": 70, "English": 80, "Mathematics": 90
+    }
+    assert results[0]["total"] == 240
+    assert results[0]["average"] == 80
+    assert results[0]["class_name"] == "Primary 1"
+    assert main.students[0]["subjects"] == {}
+    assert b"Grade" in admin_client.get(
+        f"/results?term_id={term_id}"
+    ).data
 
-    saved_students = json.loads((tmp_path / "students.json").read_text())
-    assert saved_students[0]["subjects"]["Mathematics"] == 90
+
+def test_terms_page_creates_only_valid_current_year_terms(admin_client):
+    response = admin_client.post("/terms", data={
+        "name": "First Term",
+        "sequence": "1",
+        "start_date": "2026-09-01",
+        "end_date": "2026-12-18",
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Academic term added." in response.data
+    assert b"First Term" in response.data
+
+    overlapping = admin_client.post("/terms", data={
+        "name": "Second Term",
+        "sequence": "2",
+        "start_date": "2026-12-18",
+        "end_date": "2027-03-30",
+    }, follow_redirects=True)
+    assert b"Term dates cannot overlap another term." in overlapping.data
 
 
 def test_teacher_page_assigns_a_class(admin_client):
