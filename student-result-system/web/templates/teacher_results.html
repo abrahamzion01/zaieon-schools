@@ -68,7 +68,7 @@
 
             <section class="management-panel">
                 <h2>Enter student scores</h2>
-                <p>Scores are saved for the selected class and term. Each score must be from 0 to 100.</p>
+                <p>{{ subject_guidance }} Checked subjects need a score from 0 to 100.</p>
                 {% if students %}
                     <form class="management-form" method="get" action="{{ url_for('teacher_results') }}">
                         <input type="hidden" name="class_id" value="{{ selected_class_id }}">
@@ -85,14 +85,22 @@
                         <button class="management-submit" type="submit">Load Student</button>
                     </form>
                     {% if selected_student %}
-                        <form class="management-form" method="post" action="{{ url_for('teacher_results') }}">
+                        <form class="management-form subject-selection-form" data-subject-selection method="post" action="{{ url_for('teacher_results') }}">
                             <input type="hidden" name="class_id" value="{{ selected_class_id }}">
                             <input type="hidden" name="term_id" value="{{ selected_term_id }}">
                             <input type="hidden" name="reg_no" value="{{ selected_student.reg_no }}">
-                            {% for subject in subjects %}
-                                <div class="form-field">
-                                    <label for="teacher-score-{{ loop.index }}">{{ subject }}</label>
-                                    <input id="teacher-score-{{ loop.index }}" type="number" name="{{ subject }}" min="0" max="100" step="0.01" value="{{ selected_student.subjects.get(subject, '') }}" required>
+                            {% set checked_subjects = selected_student.subjects.keys()|list if selected_student.subjects else default_subjects %}
+                            {% for group in subject_groups %}
+                                <div class="subject-group">
+                                    <h3>{{ group.name }}</h3>
+                                    <div class="subject-score-list">
+                                        {% for subject in group.subjects %}
+                                            <div class="subject-score-row">
+                                                <label><input type="checkbox" name="subject" value="{{ subject }}" {{ 'checked' if subject in checked_subjects else '' }}> {{ subject }}</label>
+                                                <input type="number" name="score_{{ subject }}" min="0" max="100" step="0.01" value="{{ selected_student.subjects.get(subject, '') }}" aria-label="Score for {{ subject }}">
+                                            </div>
+                                        {% endfor %}
+                                    </div>
                                 </div>
                             {% endfor %}
                             <button class="management-submit" type="submit">Save Results</button>
@@ -132,5 +140,20 @@
             <p>Empowering Schools. Developing Futures.</p>
         </footer>
     </main>
+    <script>
+        document.querySelectorAll('[data-subject-selection]').forEach((form) => {
+            form.querySelectorAll('.subject-score-row').forEach((row) => {
+                const choice = row.querySelector('input[type="checkbox"]');
+                const score = row.querySelector('input[type="number"]');
+                score.disabled = !choice.checked;
+                score.required = choice.checked;
+                choice.addEventListener('change', () => {
+                    score.disabled = !choice.checked;
+                    score.required = choice.checked;
+                    if (!choice.checked) score.value = '';
+                });
+            });
+        });
+    </script>
 </body>
 </html>

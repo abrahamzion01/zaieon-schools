@@ -11,6 +11,7 @@ The project is being developed with a focus on simplifying school administration
 - Student registration and record management.
 - Student identification using unique registration numbers.
 - Examination score entry and validation.
+- JSS and SSS score entry using grouped NERDC subject choices and electives.
 - Automatic calculation of total and average scores.
 - Automatic grade assignment.
 - Individual student result viewing.

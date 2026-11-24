@@ -16,6 +16,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import authentication
 import database
+import curriculum
 import main
 import secrets
 
@@ -29,6 +30,25 @@ STANDARD_CLASSES = [
     "JSS 1", "JSS 2", "JSS 3",
     "SS 1", "SS 2", "SS 3"
 ]
+
+
+def _scores_for_selected_subjects(allowed_subjects):
+    selected = list(dict.fromkeys(request.form.getlist("subject")))
+    if not selected:
+        raise ValueError("Select at least one subject for this student.")
+    if not set(selected) <= set(allowed_subjects):
+        raise ValueError("Choose subjects from the list for this class level.")
+
+    scores = {}
+    for subject in selected:
+        try:
+            score = float(request.form.get(f"score_{subject}", ""))
+        except ValueError as error:
+            raise ValueError(f"Enter a score for {subject}.") from error
+        if not 0 <= score <= 100:
+            raise ValueError(f"{subject} score must be between 0 and 100.")
+        scores[subject] = score
+    return scores
 
 
 def admin_required(view):
@@ -263,15 +283,23 @@ def manage_results():
             flash("Set up an academic term before entering results.")
             return redirect(url_for("manage_terms"))
 
-        scores = {}
+        student_class = next(
+            (student["class_name"] for student in students
+             if student["reg_no"].casefold() == registration.casefold()),
+            None,
+        )
+        if student_class is None:
+            flash("Choose a student enrolled in the current academic year.")
+            return redirect(url_for("manage_results", term_id=selected_term))
+        subject_groups, _ = curriculum.subject_groups_for_class(
+            student_class, main.SUBJECTS
+        )
         try:
-            for subject in main.SUBJECTS:
-                score = float(request.form.get(subject, ""))
-                if not 0 <= score <= 100:
-                    raise ValueError
-                scores[subject] = score
-        except ValueError:
-            flash("Enter a valid score from 0 to 100 for every subject.")
+            scores = _scores_for_selected_subjects(
+                curriculum.flatten_subject_groups(subject_groups)
+            )
+        except ValueError as error:
+            flash(str(error))
             return redirect(url_for(
                 "manage_results", selected=registration, term_id=selected_term
             ))
@@ -279,7 +307,8 @@ def manage_results():
         try:
             student = database.create_student_term_results(
                 school_id, school["academic_year_id"], registration,
-                selected_term, scores, session["user_id"]
+                selected_term, scores, session["user_id"],
+                replace_existing=True
             )
         except (ValueError, sqlite3.IntegrityError) as error:
             flash(str(error) or "Unable to save these results.")
@@ -306,6 +335,15 @@ def manage_results():
          if student["reg_no"].lower() == selected_reg.lower()),
         None
     )
+    selected_class = next(
+        (student["class_name"] for student in students
+         if student["reg_no"].casefold() == selected_reg.casefold()),
+        "",
+    )
+    subject_groups, default_subjects = curriculum.subject_groups_for_class(
+        selected_class, main.SUBJECTS
+    )
+    subject_guidance = curriculum.subject_guidance_for_class(selected_class)
     for student in results:
         if student["average"] is not None:
             student["grade"] = main.calculate_grade(student["average"])
@@ -320,7 +358,9 @@ def manage_results():
         terms=terms,
         selected_term_id=selected_term_id,
         results=results,
-        subjects=main.SUBJECTS,
+        subject_groups=subject_groups,
+        default_subjects=default_subjects,
+        subject_guidance=subject_guidance,
         selected_reg=selected_reg,
         selected_student=selected_student
     )
@@ -353,15 +393,19 @@ def teacher_results():
             flash("Choose a term in the current academic year.")
             return redirect(url_for("teacher_results", class_id=class_id))
 
-        scores = {}
+        assignment = next(
+            assignment for assignment in assignments
+            if assignment["class_id"] == class_id
+        )
+        subject_groups, _ = curriculum.subject_groups_for_class(
+            assignment["class_name"], main.SUBJECTS
+        )
         try:
-            for subject in main.SUBJECTS:
-                score = float(request.form.get(subject, ""))
-                if not 0 <= score <= 100:
-                    raise ValueError
-                scores[subject] = score
-        except ValueError:
-            flash("Enter a valid score from 0 to 100 for every subject.")
+            scores = _scores_for_selected_subjects(
+                curriculum.flatten_subject_groups(subject_groups)
+            )
+        except ValueError as error:
+            flash(str(error))
             return redirect(url_for(
                 "teacher_results", class_id=class_id, term_id=term_id,
                 selected=registration
@@ -370,7 +414,8 @@ def teacher_results():
         try:
             student = database.create_student_term_results(
                 school_id, academic_year_id, registration, term_id, scores,
-                teacher_id, teacher_id=teacher_id, class_id=class_id
+                teacher_id, teacher_id=teacher_id, class_id=class_id,
+                replace_existing=True
             )
         except (ValueError, sqlite3.IntegrityError) as error:
             flash(str(error) or "Unable to save these results.")
@@ -387,6 +432,18 @@ def teacher_results():
         selected_class_id = None
     if selected_class_id not in assigned_class_ids:
         selected_class_id = assignments[0]["class_id"] if assignments else None
+    selected_assignment = next(
+        (assignment for assignment in assignments
+         if assignment["class_id"] == selected_class_id),
+        None,
+    )
+    subject_groups, default_subjects = curriculum.subject_groups_for_class(
+        selected_assignment["class_name"] if selected_assignment else "",
+        main.SUBJECTS,
+    )
+    subject_guidance = curriculum.subject_guidance_for_class(
+        selected_assignment["class_name"] if selected_assignment else ""
+    )
     try:
         selected_term_id = int(request.args.get("term_id", ""))
     except ValueError:
@@ -418,7 +475,9 @@ def teacher_results():
         terms=terms,
         students=students,
         results=results,
-        subjects=main.SUBJECTS,
+        subject_groups=subject_groups,
+        default_subjects=default_subjects,
+        subject_guidance=subject_guidance,
         selected_class_id=selected_class_id,
         selected_term_id=selected_term_id,
         selected_reg=selected_reg,
