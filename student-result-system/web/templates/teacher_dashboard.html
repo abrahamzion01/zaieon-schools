@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teacher Dashboard | ZAIEON Schools</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-body">
+    <aside class="sidebar">
+        <a class="sidebar-brand" href="{{ url_for('dashboard') }}">
+            <img src="{{ url_for('static', filename='images/zaieon-schools-logo.png') }}" alt="">
+            <div><h2>ZAIEON</h2><span>SCHOOLS</span></div>
+        </a>
+        <p class="nav-label">TEACHER MENU</p>
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('dashboard') }}" class="nav-link active"><span>▦</span> Dashboard</a>
+            <a href="{{ url_for('teacher_results') }}" class="nav-link"><span>▤</span> Enter Results</a>
+        </nav>
+        <div class="sidebar-bottom">
+            <a href="{{ url_for('logout') }}" class="logout-link">⇥ Sign Out</a>
+            <p>Powered by ZAIEON Technologies</p>
+        </div>
+    </aside>
+
+    <main class="dashboard-content">
+        <header class="dashboard-topbar">
+            <div>
+                <h1>Teacher Dashboard</h1>
+                <p>{{ school.school_name if school else 'Your school administrator will assign your classes.' }}</p>
+            </div>
+            <div class="admin-profile">
+                <div class="profile-avatar">{{ session.get('username', 'T')[:1]|upper }}</div>
+                <div><strong>{{ session.get('username', 'Teacher') }}</strong><span>Teacher</span></div>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}<div class="flash-message">{{ message }}</div>{% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <section class="dashboard-welcome">
+            <div>
+                <span class="welcome-label">TEACHER WORKSPACE</span>
+                <h2>Your assigned classes</h2>
+                <p>{% if school %}Academic year {{ school.academic_year_name }}{% else %}No school workspace is linked yet.{% endif %}</p>
+            </div>
+            <div class="welcome-icon" aria-hidden="true">♧</div>
+        </section>
+
+        <section class="dashboard-section">
+            <div class="section-heading">
+                <div><h2>My Classes</h2><p>Open a class to enter and review term results.</p></div>
+            </div>
+            <div class="quick-actions">
+                {% for assignment in assignments %}
+                    <a href="{{ url_for('teacher_results', class_id=assignment.class_id) }}" class="action-card">
+                        <span aria-hidden="true">♧</span>
+                        <div><h3>{{ assignment.class_name }}</h3><p>Enter or update student results.</p></div>
+                        <b aria-hidden="true">→</b>
+                    </a>
+                {% else %}
+                    <div class="management-empty">No active class assignments were found for this academic year. Ask your school administrator to assign your classes.</div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <footer class="dashboard-footer">
+            <p>© 2026 ZAIEON Schools. All rights reserved.</p>
+            <p>Empowering Schools. Developing Futures.</p>
+        </footer>
+    </main>
+</body>
+</html>

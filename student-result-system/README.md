@@ -38,6 +38,7 @@ The system supports the Nigerian primary and secondary school structure:
 
 **Teacher**
 - Access assigned classes.
+- Enter and update term results for assigned classes.
 - Support academic and attendance management.
 
 **Student**

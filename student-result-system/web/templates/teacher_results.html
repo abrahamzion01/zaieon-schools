@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enter Results | ZAIEON Schools</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-body">
+    <aside class="sidebar">
+        <a class="sidebar-brand" href="{{ url_for('dashboard') }}">
+            <img src="{{ url_for('static', filename='images/zaieon-schools-logo.png') }}" alt="">
+            <div><h2>ZAIEON</h2><span>SCHOOLS</span></div>
+        </a>
+        <p class="nav-label">TEACHER MENU</p>
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('dashboard') }}" class="nav-link"><span>▦</span> Dashboard</a>
+            <a href="{{ url_for('teacher_results') }}" class="nav-link active"><span>▤</span> Enter Results</a>
+        </nav>
+        <div class="sidebar-bottom">
+            <a href="{{ url_for('logout') }}" class="logout-link">⇥ Sign Out</a>
+            <p>Powered by ZAIEON Technologies</p>
+        </div>
+    </aside>
+
+    <main class="dashboard-content">
+        <header class="dashboard-topbar">
+            <div><h1>Enter Results</h1><p>{{ school.school_name }} · {{ school.academic_year_name }}</p></div>
+            <div class="admin-profile">
+                <div class="profile-avatar">{{ session.get('username', 'T')[:1]|upper }}</div>
+                <div><strong>{{ session.get('username', 'Teacher') }}</strong><span>Teacher</span></div>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}<div class="flash-message">{{ message }}</div>{% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% if not assignments %}
+            <section class="management-panel"><p class="management-empty">You do not have an active class assignment for this academic year. Ask your school administrator to assign your classes.</p></section>
+        {% elif not terms %}
+            <section class="management-panel"><p class="management-empty">No academic terms are set up for this year yet. Ask your school administrator to add the terms before entering results.</p></section>
+        {% else %}
+            <section class="management-panel">
+                <h2>Choose class and term</h2>
+                <form class="management-form" method="get" action="{{ url_for('teacher_results') }}">
+                    <div class="form-field">
+                        <label for="teacher-class">Assigned class</label>
+                        <select id="teacher-class" name="class_id" required>
+                            {% for assignment in assignments %}
+                                <option value="{{ assignment.class_id }}" {{ 'selected' if selected_class_id == assignment.class_id else '' }}>{{ assignment.class_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="teacher-term">Academic term</label>
+                        <select id="teacher-term" name="term_id" required>
+                            {% for term in terms %}
+                                <option value="{{ term.id }}" {{ 'selected' if selected_term_id == term.id else '' }}>{{ term.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button class="management-submit" type="submit">View Class</button>
+                </form>
+            </section>
+
+            <section class="management-panel">
+                <h2>Enter student scores</h2>
+                <p>Scores are saved for the selected class and term. Each score must be from 0 to 100.</p>
+                {% if students %}
+                    <form class="management-form" method="get" action="{{ url_for('teacher_results') }}">
+                        <input type="hidden" name="class_id" value="{{ selected_class_id }}">
+                        <input type="hidden" name="term_id" value="{{ selected_term_id }}">
+                        <div class="form-field">
+                            <label for="teacher-student">Student</label>
+                            <select id="teacher-student" name="selected" required>
+                                <option value="">Select a student</option>
+                                {% for student in students %}
+                                    <option value="{{ student.reg_no }}" {{ 'selected' if selected_reg == student.reg_no else '' }}>{{ student.name }} ({{ student.reg_no }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button class="management-submit" type="submit">Load Student</button>
+                    </form>
+                    {% if selected_student %}
+                        <form class="management-form" method="post" action="{{ url_for('teacher_results') }}">
+                            <input type="hidden" name="class_id" value="{{ selected_class_id }}">
+                            <input type="hidden" name="term_id" value="{{ selected_term_id }}">
+                            <input type="hidden" name="reg_no" value="{{ selected_student.reg_no }}">
+                            {% for subject in subjects %}
+                                <div class="form-field">
+                                    <label for="teacher-score-{{ loop.index }}">{{ subject }}</label>
+                                    <input id="teacher-score-{{ loop.index }}" type="number" name="{{ subject }}" min="0" max="100" step="0.01" value="{{ selected_student.subjects.get(subject, '') }}" required>
+                                </div>
+                            {% endfor %}
+                            <button class="management-submit" type="submit">Save Results</button>
+                        </form>
+                    {% endif %}
+                {% else %}
+                    <p class="management-empty">No students are enrolled in this assigned class for the current academic year.</p>
+                {% endif %}
+            </section>
+
+            <section class="management-panel">
+                <h2>Class results</h2>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>Student</th><th>Registration Number</th><th>Total</th><th>Average</th><th>Grade</th><th></th></tr></thead>
+                        <tbody>
+                            {% for student in results %}
+                                <tr>
+                                    <td>{{ student.name }}</td>
+                                    <td>{{ student.reg_no }}</td>
+                                    <td>{{ student.total if student.total is not none else '—' }}</td>
+                                    <td>{{ student.average|round(2) if student.average is not none else '—' }}</td>
+                                    <td>{{ student.grade if student.grade else '—' }}</td>
+                                    <td><a class="inline-action" href="{{ url_for('teacher_results', class_id=selected_class_id, term_id=selected_term_id, selected=student.reg_no) }}">Edit scores</a></td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="6" class="empty-state">No results to show for this class and term.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        {% endif %}
+
+        <footer class="dashboard-footer">
+            <p>© 2026 ZAIEON Schools. All rights reserved.</p>
+            <p>Empowering Schools. Developing Futures.</p>
+        </footer>
+    </main>
+</body>
+</html>

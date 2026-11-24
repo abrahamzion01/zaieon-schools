@@ -58,6 +58,36 @@ def admin_client(tmp_path, monkeypatch):
     return client
 
 
+@pytest.fixture
+def teacher_client(admin_client):
+    assert authentication.register_user(
+        "teacher-test", "TeacherPassword123", "teacher"
+    )
+    connection = database.get_connection()
+    try:
+        teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username = ?", ("teacher-test",)
+        ).fetchone()["id"]
+    finally:
+        connection.close()
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+    school = database.get_school_context(school_id)
+    primary_one = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "Primary 1"
+    )
+    database.assign_teacher_to_school_class(
+        school_id, teacher_id, primary_one["id"], school["academic_year_id"]
+    )
+    with admin_client.session_transaction() as session:
+        session["user_id"] = teacher_id
+        session["username"] = "teacher-test"
+        session["role"] = "teacher"
+        session["must_change_password"] = False
+    return admin_client, school, teacher_id, primary_one["id"]
+
+
 def test_dashboard_quick_actions_link_to_admin_pages(admin_client):
     response = admin_client.get("/dashboard")
 
@@ -205,6 +235,71 @@ def test_teacher_page_assigns_a_class(admin_client):
         school_id, school["academic_year_id"]
     )
     assert [row["class_name"] for row in assignments] == ["JSS 1"]
+
+
+def test_teacher_can_enter_results_only_for_assigned_class(teacher_client):
+    client, school, teacher_id, primary_one_id = teacher_client
+    school_id = school["school_id"]
+    primary_two = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "Primary 2"
+    )
+    assigned_student_id = database.create_student(
+        school_id, "REG-ASSIGNED", "Assigned Student"
+    )
+    unassigned_student_id = database.create_student(
+        school_id, "REG-OTHER", "Other Class Student"
+    )
+    database.enroll_student(
+        assigned_student_id, primary_one_id, school["academic_year_id"],
+        "2026-09-03"
+    )
+    database.enroll_student(
+        unassigned_student_id, primary_two["id"], school["academic_year_id"],
+        "2026-09-03"
+    )
+    term_id = database.create_term(
+        school["academic_year_id"], "First Term", 1,
+        "2026-09-01", "2026-12-18"
+    )
+
+    dashboard = client.get("/dashboard")
+    assert dashboard.status_code == 200
+    assert b"My Classes" in dashboard.data
+    assert b"Primary 1" in dashboard.data
+
+    results_page = client.get(
+        f"/teacher/results?class_id={primary_one_id}&term_id={term_id}"
+    )
+    assert results_page.status_code == 200
+    assert b"REG-ASSIGNED" in results_page.data
+    assert b"REG-OTHER" not in results_page.data
+
+    response = client.post("/teacher/results", data={
+        "class_id": str(primary_one_id),
+        "term_id": str(term_id),
+        "reg_no": "REG-ASSIGNED",
+        "Mathematics": "91",
+        "English": "82",
+        "Biology": "73",
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Results saved for Assigned Student." in response.data
+    result_rows = database.get_results_for_term(
+        school_id, school["academic_year_id"], term_id,
+        teacher_id=teacher_id, class_id=primary_one_id
+    )
+    assert result_rows[0]["subjects"]["Mathematics"] == 91
+
+    with pytest.raises(ValueError, match="only for classes assigned"):
+        database.create_student_term_results(
+            school_id, school["academic_year_id"], "REG-OTHER", term_id,
+            {"Mathematics": 90}, teacher_id,
+            teacher_id=teacher_id, class_id=primary_two["id"]
+        )
+
+    admin_results = client.get("/results")
+    assert admin_results.status_code == 302
 
 
 def test_registration_creates_school_profile_and_year_enrollment(admin_client, tmp_path):
