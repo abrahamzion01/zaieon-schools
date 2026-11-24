@@ -298,6 +298,57 @@ def manage_terms():
     )
 
 
+@app.route("/students/import-legacy", methods=["GET", "POST"])
+@admin_required
+def import_legacy_students():
+    school_id = session["school_id"]
+    school = database.get_school_context(school_id)
+    classes = database.get_school_classes(school_id)
+    records = main.students if isinstance(main.students, list) else []
+
+    if request.method == "POST":
+        preview = database.preview_legacy_student_import(
+            school_id, school["academic_year_id"], records
+        )
+        pending = [record for record in preview if record["status"] != "enrolled"]
+        import_records = []
+        for record in pending:
+            index = record["index"]
+            legacy_record = records[index]
+            import_records.append({
+                "reg_no": legacy_record.get("reg_no"),
+                "name": legacy_record.get("name"),
+                "class_id": request.form.get(f"class_id_{index}", ""),
+                "enrollment_date": request.form.get(f"enrollment_date_{index}", ""),
+            })
+        try:
+            counts = database.import_legacy_students(
+                school_id, school["academic_year_id"], import_records
+            )
+        except (ValueError, sqlite3.IntegrityError) as error:
+            flash(str(error) or "The legacy students could not be imported.")
+        else:
+            flash(
+                f"Import complete: {counts['created']} profiles created, "
+                f"{counts['enrolled']} students enrolled, "
+                f"{counts['skipped']} already enrolled and skipped."
+            )
+            return redirect(url_for("import_legacy_students"))
+
+    preview = database.preview_legacy_student_import(
+        school_id, school["academic_year_id"], records
+    )
+    return render_template(
+        "admin_section.html",
+        page="legacy_import",
+        page_title="Import Legacy Students",
+        page_description="Review students from the existing student records file.",
+        legacy_students=preview,
+        classes=classes,
+        academic_year=school,
+    )
+
+
 @app.route("/teachers", methods=["GET", "POST"])
 @admin_required
 def manage_teachers():

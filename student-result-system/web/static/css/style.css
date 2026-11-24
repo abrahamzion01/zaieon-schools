@@ -723,6 +723,28 @@ footer {
     min-width: 550px;
 }
 
+.legacy-import-table {
+    min-width: 900px;
+}
+
+.legacy-import-table select,
+.legacy-import-table input {
+    min-height: 40px;
+    padding: 8px 10px;
+    color: #263445;
+    background: #FFFFFF;
+    border: 1px solid #DCE3EC;
+    border-radius: 8px;
+    font: inherit;
+}
+
+.legacy-import-table select:focus,
+.legacy-import-table input:focus {
+    outline: none;
+    border-color: #18A6A0;
+    box-shadow: 0 0 0 3px rgba(24, 166, 160, 0.12);
+}
+
 .table-container th {
     background: #F8FAFC;
     color: #718096;

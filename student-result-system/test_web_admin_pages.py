@@ -255,6 +255,69 @@ def test_registration_creates_school_profile_and_year_enrollment(admin_client, t
     assert profile["role"] == "student"
 
 
+def test_legacy_import_requires_class_and_date_and_is_idempotent(admin_client):
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+    school = database.get_school_context(school_id)
+    primary_one = next(
+        school_class for school_class in database.get_school_classes(school_id)
+        if school_class["name"] == "Primary 1"
+    )
+
+    preview = admin_client.get("/students/import-legacy")
+    assert preview.status_code == 200
+    assert b"Choose a class" in preview.data
+    assert b"Enrollment date" in preview.data
+
+    response = admin_client.post("/students/import-legacy", data={
+        "class_id_0": str(primary_one["id"]),
+        "enrollment_date_0": "2026-09-02",
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"1 profiles created, 1 students enrolled" in response.data
+
+    enrolled = database.get_students_for_year(
+        school_id, school["academic_year_id"]
+    )
+    assert len(enrolled) == 1
+    assert enrolled[0]["reg_no"] == "REG-TEST-1"
+    assert enrolled[0]["class_name"] == "Primary 1"
+    assert main.students[0]["subjects"] == {}
+
+    term_id = database.create_term(
+        school["academic_year_id"], "First Term", 1,
+        "2026-09-01", "2026-12-18"
+    )
+    results_page = admin_client.get(f"/results?term_id={term_id}")
+    assert results_page.status_code == 200
+    assert b"REG-TEST-1" in results_page.data
+
+    repeated = admin_client.post("/students/import-legacy", data={
+        "class_id_0": str(primary_one["id"]),
+        "enrollment_date_0": "2026-09-02",
+    }, follow_redirects=True)
+    assert b"All legacy students already have an enrollment" in repeated.data
+    assert len(database.get_students_for_year(
+        school_id, school["academic_year_id"]
+    )) == 1
+
+
+def test_legacy_import_rolls_back_invalid_class_mapping(admin_client):
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+    school = database.get_school_context(school_id)
+    with pytest.raises(ValueError, match="active class"):
+        database.import_legacy_students(school_id, school["academic_year_id"], [{
+            "name": "Test Student",
+            "reg_no": "REG-TEST-1",
+            "class_id": "9999",
+            "enrollment_date": "2026-09-02",
+        }])
+    assert database.get_students_for_year(
+        school_id, school["academic_year_id"]
+    ) == []
+
+
 def test_attendance_page_filters_by_date_and_class(admin_client):
     assert authentication.register_user(
         "attendance-teacher", "AttendancePassword123", "teacher"
