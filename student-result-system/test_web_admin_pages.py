@@ -167,9 +167,10 @@ def test_results_page_saves_valid_scores(admin_client):
     response = admin_client.post("/results", data={
         "reg_no": "REG-TEST-1",
         "term_id": str(term_id),
-        "Mathematics": "90",
-        "English": "80",
-        "Biology": "70",
+        "subject": ["Mathematics", "English", "Biology"],
+        "score_Mathematics": "90",
+        "score_English": "80",
+        "score_Biology": "70",
     }, follow_redirects=True)
 
     assert response.status_code == 200
@@ -187,6 +188,18 @@ def test_results_page_saves_valid_scores(admin_client):
     assert b"Grade" in admin_client.get(
         f"/results?term_id={term_id}"
     ).data
+
+    updated = admin_client.post("/results", data={
+        "reg_no": "REG-TEST-1",
+        "term_id": str(term_id),
+        "subject": ["Mathematics"],
+        "score_Mathematics": "95",
+    }, follow_redirects=True)
+    assert b"Results saved for Test Student." in updated.data
+    replaced = database.get_results_for_term(
+        school_id, school["academic_year_id"], term_id
+    )
+    assert replaced[0]["subjects"] == {"Mathematics": 95}
 
 
 def test_terms_page_creates_only_valid_current_year_terms(admin_client):
@@ -279,9 +292,10 @@ def test_teacher_can_enter_results_only_for_assigned_class(teacher_client):
         "class_id": str(primary_one_id),
         "term_id": str(term_id),
         "reg_no": "REG-ASSIGNED",
-        "Mathematics": "91",
-        "English": "82",
-        "Biology": "73",
+        "subject": ["Mathematics", "English", "Biology"],
+        "score_Mathematics": "91",
+        "score_English": "82",
+        "score_Biology": "73",
     }, follow_redirects=True)
     assert response.status_code == 200
     assert b"Results saved for Assigned Student." in response.data
@@ -300,6 +314,78 @@ def test_teacher_can_enter_results_only_for_assigned_class(teacher_client):
 
     admin_results = client.get("/results")
     assert admin_results.status_code == 302
+
+
+def test_secondary_score_form_uses_curriculum_subject_options(admin_client):
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+    school = database.get_school_context(school_id)
+    jss_one = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "JSS 1"
+    )
+    student_id = database.create_student(
+        school_id, "REG-JSS-1", "Junior Student"
+    )
+    database.enroll_student(
+        student_id, jss_one["id"], school["academic_year_id"], "2026-09-03"
+    )
+    term_id = database.create_term(
+        school["academic_year_id"], "First Term", 1,
+        "2026-09-01", "2026-12-18"
+    )
+
+    page = admin_client.get(f"/results?selected=REG-JSS-1&term_id={term_id}")
+    assert page.status_code == 200
+    assert b"Intermediate Science" in page.data
+    assert b"Choose one Nigerian language" in page.data
+    assert b"Horticulture and Crop Production" in page.data
+
+    invalid = admin_client.post("/results", data={
+        "reg_no": "REG-JSS-1",
+        "term_id": str(term_id),
+        "subject": ["Unlisted Subject"],
+        "score_Unlisted Subject": "88",
+    }, follow_redirects=True)
+    assert b"Choose subjects from the list for this class level." in invalid.data
+    assert database.get_results_for_term(
+        school_id, school["academic_year_id"], term_id
+    )[0]["subjects"] == {}
+
+    saved = admin_client.post("/results", data={
+        "reg_no": "REG-JSS-1",
+        "term_id": str(term_id),
+        "subject": ["English Studies", "Horticulture and Crop Production"],
+        "score_English Studies": "88",
+        "score_Horticulture and Crop Production": "92",
+    }, follow_redirects=True)
+    assert saved.status_code == 200
+    result = database.get_results_for_term(
+        school_id, school["academic_year_id"], term_id
+    )[0]
+    assert result["subjects"] == {
+        "English Studies": 88,
+        "Horticulture and Crop Production": 92,
+    }
+
+    ss_one = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "SS 1"
+    )
+    senior_student_id = database.create_student(
+        school_id, "REG-SS-1", "Senior Student"
+    )
+    database.enroll_student(
+        senior_student_id, ss_one["id"], school["academic_year_id"],
+        "2026-09-03"
+    )
+    senior_page = admin_client.get(
+        f"/results?selected=REG-SS-1&term_id={term_id}"
+    )
+    assert b"General Mathematics" in senior_page.data
+    assert b"Citizenship and Heritage Studies" in senior_page.data
+    assert b"Accounting" in senior_page.data
+    assert b"NERDC SSS offers 8" in senior_page.data
 
 
 def test_registration_creates_school_profile_and_year_enrollment(admin_client, tmp_path):

@@ -704,7 +704,7 @@ def get_terms_for_year(academic_year_id):
 
 def create_student_term_results(school_id, academic_year_id, registration_number,
                                 term_id, scores, recorded_by, teacher_id=None,
-                                class_id=None):
+                                class_id=None, replace_existing=False):
     """Save a full subject score set for a student's current-year enrollment."""
     with _connection_scope() as connection:
         enrollment = connection.execute("""
@@ -742,6 +742,12 @@ def create_student_term_results(school_id, academic_year_id, registration_number
                   academic_year_id)).fetchone()
             if assignment is None:
                 raise ValueError("You can enter results only for classes assigned to you.")
+
+        if replace_existing:
+            connection.execute("""
+                DELETE FROM student_results
+                WHERE enrollment_id = ? AND term_id = ?
+            """, (enrollment["id"], term_id))
 
         for subject, score in scores.items():
             connection.execute("""
