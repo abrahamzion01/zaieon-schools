@@ -124,10 +124,10 @@
                         </div>
                         <div class="form-field">
                             <label for="teacher-class">Class</label>
-                            <select id="teacher-class" name="class_name" required>
+                            <select id="teacher-class" name="class_id" required>
                                 <option value="">Select a class</option>
-                                {% for class_name in classes %}
-                                    <option value="{{ class_name }}">{{ class_name }}</option>
+                                {% for school_class in classes %}
+                                    <option value="{{ school_class.id }}">{{ school_class.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -166,8 +166,8 @@
                         <label for="attendance-class">Class</label>
                         <select id="attendance-class" name="class_name">
                             <option value="">All classes</option>
-                            {% for class_name in classes %}
-                                <option value="{{ class_name }}" {{ 'selected' if selected_class == class_name else '' }}>{{ class_name }}</option>
+                            {% for school_class in classes %}
+                                <option value="{{ school_class.name }}" {{ 'selected' if selected_class == school_class.name else '' }}>{{ school_class.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
