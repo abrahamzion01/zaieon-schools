@@ -20,6 +20,7 @@
         <nav class="sidebar-nav">
             <a href="{{ url_for('dashboard') }}" class="nav-link"><span>▦</span> Dashboard</a>
             <a href="{{ url_for('register_student') }}" class="nav-link"><span>♙</span> Students</a>
+            <a href="{{ url_for('import_legacy_students') }}" class="nav-link {{ 'active' if page == 'legacy_import' else '' }}"><span>⇧</span> Import Students</a>
             <a href="{{ url_for('manage_results') }}" class="nav-link {{ 'active' if page == 'results' else '' }}"><span>▤</span> Academic Results</a>
             <a href="{{ url_for('manage_terms') }}" class="nav-link {{ 'active' if page == 'terms' else '' }}"><span>▦</span> Academic Terms</a>
             <a href="{{ url_for('attendance_overview') }}" class="nav-link {{ 'active' if page == 'attendance' else '' }}"><span>◷</span> Attendance</a>
@@ -173,6 +174,62 @@
                         </tbody>
                     </table>
                 </div>
+            </section>
+
+        {% elif page == 'legacy_import' %}
+            <section class="management-panel">
+                <h2>Review existing student records</h2>
+                <p>The current academic year is {{ academic_year.academic_year_name }} ({{ academic_year.start_date }} to {{ academic_year.end_date }}).</p>
+                <div class="management-empty">
+                    Choose a class and confirm an enrollment date for each student not yet enrolled this year. The old result scores stay in the existing records file because it does not identify the term for those scores.
+                </div>
+            </section>
+
+            <section class="management-panel">
+                <h2>Students from the existing records file</h2>
+                {% if not legacy_students %}
+                    <p class="management-empty">No legacy student records were found.</p>
+                {% elif not classes %}
+                    <p class="management-empty">Create at least one active class before importing students.</p>
+                {% else %}
+                    {% set pending_import_count = legacy_students | rejectattr('status', 'equalto', 'enrolled') | list | length %}
+                    <form method="post" action="{{ url_for('import_legacy_students') }}">
+                        <div class="table-container">
+                            <table class="legacy-import-table">
+                                <thead><tr><th>Student</th><th>Registration Number</th><th>Import status</th><th>Current class</th><th>Enrollment date</th></tr></thead>
+                                <tbody>
+                                    {% for student in legacy_students %}
+                                        <tr>
+                                            <td>{{ student.name or 'Name missing' }}</td>
+                                            <td>{{ student.reg_no or 'Registration number missing' }}</td>
+                                            {% if student.status == 'enrolled' %}
+                                                <td>Already enrolled</td>
+                                                <td>{{ student.class_name }}</td>
+                                                <td>—</td>
+                                            {% else %}
+                                                <td>{{ 'Profile exists; needs enrollment' if student.status == 'profile' else 'Ready to import' }}</td>
+                                                <td>
+                                                    <select name="class_id_{{ student.index }}" aria-label="Class for {{ student.name }}" required>
+                                                        <option value="">Choose a class</option>
+                                                        {% for school_class in classes %}
+                                                            <option value="{{ school_class.id }}" {{ 'selected' if student.suggested_class_id == school_class.id else '' }}>{{ school_class.name }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </td>
+                                                <td><input type="date" name="enrollment_date_{{ student.index }}" min="{{ academic_year.start_date }}" max="{{ academic_year.end_date }}" required aria-label="Enrollment date for {{ student.name }}"></td>
+                                            {% endif %}
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% if pending_import_count %}
+                            <button class="management-submit" type="submit">Import and Enroll Students</button>
+                        {% else %}
+                            <p class="management-empty">All legacy students already have an enrollment for this academic year.</p>
+                        {% endif %}
+                    </form>
+                {% endif %}
             </section>
 
         {% elif page == 'teachers' %}

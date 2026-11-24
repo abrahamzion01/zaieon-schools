@@ -64,9 +64,10 @@ enrollment together; teacher assignments are linked to a school, class, and
 academic year. Existing `students.json` records and legacy attendance and
 teacher-class tables are preserved. Web results are stored in SQLite per
 student enrollment and academic term; result entry is limited to students
-enrolled in the school's current academic year. Legacy JSON student records
-remain available to the desktop app and have not yet been imported into the
-school-scoped enrollment model.
+enrolled in the school's current academic year. The admin can review and import
+legacy JSON students by assigning a class and confirming each enrollment date.
+The JSON file is left intact, and its old scores are not assigned a term because
+the source records do not identify one.
 
 ## Project Structure
 

@@ -532,6 +532,166 @@ def get_school_classes(school_id):
         """, (school_id,)).fetchall()
 
 
+def preview_legacy_student_import(school_id, academic_year_id, records):
+    """Return legacy students with duplicate and class-mapping information."""
+    with _connection_scope() as connection:
+        year = connection.execute("""
+            SELECT start_date, end_date FROM academic_years
+            WHERE id = ? AND school_id = ?
+        """, (academic_year_id, school_id)).fetchone()
+        if year is None:
+            raise ValueError("The current academic year could not be found.")
+
+        classes = connection.execute("""
+            SELECT id, name FROM school_classes
+            WHERE school_id = ? AND is_active = 1
+        """, (school_id,)).fetchall()
+        class_ids = {row["name"].casefold(): row["id"] for row in classes}
+        preview = []
+        for index, record in enumerate(records):
+            registration = str(record.get("reg_no", "")).strip()
+            name = str(record.get("name", "")).strip()
+            student = None
+            if registration:
+                student = connection.execute("""
+                    SELECT students.id,
+                           enrollments.id AS enrollment_id,
+                           school_classes.name AS enrolled_class
+                    FROM students
+                    LEFT JOIN enrollments
+                      ON enrollments.student_id = students.id
+                     AND enrollments.academic_year_id = ?
+                    LEFT JOIN school_classes
+                      ON school_classes.id = enrollments.class_id
+                    WHERE students.school_id = ?
+                      AND lower(students.registration_number) = lower(?)
+                """, (academic_year_id, school_id, registration)).fetchone()
+            status = "enrolled" if student and student["enrollment_id"] else (
+                "profile" if student else "new"
+            )
+            preview.append({
+                "index": index,
+                "name": name,
+                "reg_no": registration,
+                "status": status,
+                "class_name": student["enrolled_class"] if student and student["enrollment_id"] else None,
+                "suggested_class_id": class_ids.get(
+                    str(record.get("class_name", "")).strip().casefold()
+                ),
+            })
+        return preview
+
+
+def import_legacy_students(school_id, academic_year_id, records):
+    """Create missing student profiles and current-year enrollments atomically."""
+    prepared = []
+    seen = set()
+    for record in records:
+        registration = str(record.get("reg_no", "")).strip()
+        name = str(record.get("name", "")).strip()
+        if not registration or not name or not any(character.isalpha() for character in name):
+            raise ValueError("Every imported record needs a name and registration number.")
+        key = registration.casefold()
+        if key in seen:
+            raise ValueError(f"The legacy file contains duplicate registration number {registration}.")
+        seen.add(key)
+        try:
+            class_id = int(record.get("class_id", ""))
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Choose a class for {name}.") from error
+        enrolled_on = _validated_date(record.get("enrollment_date"), "Enrollment date")
+        prepared.append((registration, name, class_id, enrolled_on))
+
+    with _connection_scope() as connection:
+        year = connection.execute("""
+            SELECT start_date, end_date FROM academic_years
+            WHERE id = ? AND school_id = ?
+        """, (academic_year_id, school_id)).fetchone()
+        if year is None:
+            raise ValueError("The current academic year could not be found.")
+        year_start = date.fromisoformat(year["start_date"])
+        year_end = date.fromisoformat(year["end_date"])
+
+        for registration, name, class_id, enrolled_on in prepared:
+            school_class = connection.execute("""
+                SELECT id FROM school_classes
+                WHERE id = ? AND school_id = ? AND is_active = 1
+            """, (class_id, school_id)).fetchone()
+            if school_class is None:
+                raise ValueError(f"Choose an active class in this school for {name}.")
+            if not year_start <= enrolled_on <= year_end:
+                raise ValueError(f"Enrollment date for {name} must be within the current academic year.")
+
+        created = 0
+        enrolled = 0
+        skipped = 0
+        for registration, name, class_id, enrolled_on in prepared:
+            student = connection.execute("""
+                SELECT id, user_id FROM students
+                WHERE school_id = ? AND lower(registration_number) = lower(?)
+            """, (school_id, registration)).fetchone()
+            if student is None:
+                account = connection.execute("""
+                    SELECT student_accounts.user_id
+                    FROM student_accounts
+                    JOIN users ON users.id = student_accounts.user_id
+                    WHERE users.role = 'student'
+                      AND lower(student_accounts.reg_no) = lower(?)
+                """, (registration,)).fetchone()
+                user_id = account["user_id"] if account else None
+                if user_id is not None:
+                    linked_student = connection.execute(
+                        "SELECT school_id, registration_number FROM students WHERE user_id = ?",
+                        (user_id,),
+                    ).fetchone()
+                    if linked_student is not None:
+                        raise ValueError(
+                            f"The login for {registration} is already linked to another student profile."
+                        )
+                cursor = connection.execute("""
+                    INSERT INTO students (
+                        school_id, registration_number, full_name, user_id
+                    ) VALUES (?, ?, ?, ?)
+                """, (school_id, registration, name, user_id))
+                student_id = cursor.lastrowid
+                created += 1
+                if user_id is not None:
+                    membership = connection.execute("""
+                        SELECT role FROM school_memberships
+                        WHERE school_id = ? AND user_id = ?
+                    """, (school_id, user_id)).fetchone()
+                    if membership and membership["role"] != "student":
+                        raise ValueError(
+                            f"The login for {registration} already has another role in this school."
+                        )
+                    if membership is None:
+                        connection.execute("""
+                            INSERT INTO school_memberships (school_id, user_id, role)
+                            VALUES (?, ?, 'student')
+                        """, (school_id, user_id))
+            else:
+                student_id = student["id"]
+
+            existing_enrollment = connection.execute("""
+                SELECT id FROM enrollments
+                WHERE student_id = ? AND academic_year_id = ?
+            """, (student_id, academic_year_id)).fetchone()
+            if existing_enrollment:
+                skipped += 1
+                continue
+
+            connection.execute("""
+                INSERT INTO enrollments (
+                    school_id, student_id, class_id, academic_year_id,
+                    enrollment_date
+                ) VALUES (?, ?, ?, ?, ?)
+            """, (school_id, student_id, class_id, academic_year_id,
+                  enrolled_on.isoformat()))
+            enrolled += 1
+
+        return {"created": created, "enrolled": enrolled, "skipped": skipped}
+
+
 def get_terms_for_year(academic_year_id):
     with _connection_scope() as connection:
         return connection.execute("""
