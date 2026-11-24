@@ -51,6 +51,17 @@ The system supports the Nigerian primary and secondary school structure:
 - JSON – Student record storage.
 - Pytest – Automated testing.
 
+## Data Model Foundation
+
+SQLite now includes school-scoped records for schools, academic years, terms,
+classes, students, and yearly class enrollments. Registration numbers are unique
+within each school, enrollment links are constrained to the same school, and
+term and enrollment dates are checked against their academic year.
+
+This schema is an additive foundation. Existing `students.json` records and
+legacy attendance and teacher-class tables are preserved; the current screens
+still use those existing paths until each workflow is migrated deliberately.
+
 ## Project Structure
 
 ```text
