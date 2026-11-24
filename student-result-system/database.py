@@ -703,11 +703,13 @@ def get_terms_for_year(academic_year_id):
 
 
 def create_student_term_results(school_id, academic_year_id, registration_number,
-                                term_id, scores, recorded_by):
+                                term_id, scores, recorded_by, teacher_id=None,
+                                class_id=None):
     """Save a full subject score set for a student's current-year enrollment."""
     with _connection_scope() as connection:
         enrollment = connection.execute("""
-            SELECT enrollments.id, students.id AS student_id,
+            SELECT enrollments.id, enrollments.class_id,
+                   students.id AS student_id,
                    students.full_name, students.registration_number
             FROM enrollments
             JOIN students ON students.id = enrollments.student_id
@@ -729,6 +731,17 @@ def create_student_term_results(school_id, academic_year_id, registration_number
             raise ValueError("Choose a student enrolled in the current academic year.")
         if term is None:
             raise ValueError("Choose a term in the current academic year.")
+        if class_id is not None and enrollment["class_id"] != class_id:
+            raise ValueError("Choose a student in the selected class.")
+        if teacher_id is not None:
+            assignment = connection.execute("""
+                SELECT 1 FROM teacher_class_assignments
+                WHERE school_id = ? AND teacher_id = ? AND class_id = ?
+                  AND academic_year_id = ?
+            """, (school_id, teacher_id, enrollment["class_id"],
+                  academic_year_id)).fetchone()
+            if assignment is None:
+                raise ValueError("You can enter results only for classes assigned to you.")
 
         for subject, score in scores.items():
             connection.execute("""
@@ -744,12 +757,14 @@ def create_student_term_results(school_id, academic_year_id, registration_number
                 "reg_no": enrollment["registration_number"]}
 
 
-def get_students_for_year(school_id, academic_year_id):
+def get_students_for_year(school_id, academic_year_id, teacher_id=None,
+                          class_id=None):
     with _connection_scope() as connection:
         return connection.execute("""
             SELECT students.id AS student_id, enrollments.id AS enrollment_id,
                    students.full_name AS name,
                    students.registration_number AS reg_no,
+                   school_classes.id AS class_id,
                    school_classes.name AS class_name
             FROM enrollments
             JOIN students ON students.id = enrollments.student_id
@@ -760,18 +775,29 @@ def get_students_for_year(school_id, academic_year_id):
               AND enrollments.academic_year_id = ?
               AND enrollments.status = 'active'
               AND students.is_active = 1
+              AND (? IS NULL OR enrollments.class_id = ?)
+              AND (? IS NULL OR EXISTS (
+                    SELECT 1 FROM teacher_class_assignments
+                    WHERE teacher_class_assignments.school_id = enrollments.school_id
+                      AND teacher_class_assignments.teacher_id = ?
+                      AND teacher_class_assignments.class_id = enrollments.class_id
+                      AND teacher_class_assignments.academic_year_id = enrollments.academic_year_id
+              ))
             ORDER BY school_classes.sort_order, school_classes.name,
                      students.full_name
-        """, (school_id, academic_year_id)).fetchall()
+        """, (school_id, academic_year_id, class_id, class_id,
+              teacher_id, teacher_id)).fetchall()
 
 
-def get_results_for_term(school_id, academic_year_id, term_id):
+def get_results_for_term(school_id, academic_year_id, term_id,
+                         teacher_id=None, class_id=None):
     """Return enrolled students with their subject marks and term totals."""
     with _connection_scope() as connection:
         rows = connection.execute("""
             SELECT enrollments.id AS enrollment_id,
                    students.full_name AS name,
                    students.registration_number AS reg_no,
+                   school_classes.id AS class_id,
                    school_classes.name AS class_name,
                    student_results.subject, student_results.score
             FROM enrollments
@@ -786,14 +812,24 @@ def get_results_for_term(school_id, academic_year_id, term_id):
               AND enrollments.academic_year_id = ?
               AND enrollments.status = 'active'
               AND students.is_active = 1
+              AND (? IS NULL OR enrollments.class_id = ?)
+              AND (? IS NULL OR EXISTS (
+                    SELECT 1 FROM teacher_class_assignments
+                    WHERE teacher_class_assignments.school_id = enrollments.school_id
+                      AND teacher_class_assignments.teacher_id = ?
+                      AND teacher_class_assignments.class_id = enrollments.class_id
+                      AND teacher_class_assignments.academic_year_id = enrollments.academic_year_id
+              ))
             ORDER BY school_classes.sort_order, school_classes.name,
                      students.full_name, student_results.subject
-        """, (term_id, school_id, academic_year_id)).fetchall()
+        """, (term_id, school_id, academic_year_id,
+              class_id, class_id, teacher_id, teacher_id)).fetchall()
 
     results = {}
     for row in rows:
         result = results.setdefault(row["enrollment_id"], {
             "name": row["name"], "reg_no": row["reg_no"],
+            "class_id": row["class_id"],
             "class_name": row["class_name"], "subjects": {},
         })
         if row["subject"] is not None:
@@ -844,18 +880,22 @@ def assign_teacher_to_school_class(school_id, teacher_id, class_id,
         return cursor.lastrowid
 
 
-def get_teacher_class_assignments(school_id, academic_year_id):
+def get_teacher_class_assignments(school_id, academic_year_id,
+                                  teacher_id=None):
     with _connection_scope() as connection:
         return connection.execute("""
-            SELECT users.username, school_classes.name AS class_name
+            SELECT users.id AS teacher_id, users.username,
+                   school_classes.id AS class_id,
+                   school_classes.name AS class_name
             FROM teacher_class_assignments
             JOIN users ON users.id = teacher_class_assignments.teacher_id
             JOIN school_classes ON school_classes.id = teacher_class_assignments.class_id
             WHERE teacher_class_assignments.school_id = ?
               AND teacher_class_assignments.academic_year_id = ?
+              AND (? IS NULL OR teacher_class_assignments.teacher_id = ?)
             ORDER BY users.username, school_classes.sort_order,
                      school_classes.name
-        """, (school_id, academic_year_id)).fetchall()
+        """, (school_id, academic_year_id, teacher_id, teacher_id)).fetchall()
 
 
 def get_teachers():

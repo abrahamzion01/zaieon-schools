@@ -69,6 +69,40 @@ def admin_required(view):
     return wrapped
 
 
+def teacher_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        if session.get("role") != "teacher":
+            flash("This page is for teachers.")
+            return redirect(url_for("dashboard"))
+        if session.get("must_change_password"):
+            return "Password change page coming next."
+
+        memberships = [
+            row for row in database.get_school_memberships(session["user_id"])
+            if row["role"] == "teacher"
+        ]
+        if not memberships:
+            flash("Ask a school administrator to assign you to a class first.")
+            return redirect(url_for("dashboard"))
+        school_ids = {row["school_id"] for row in memberships}
+        school_id = session.get("school_id")
+        if school_id not in school_ids:
+            if len(school_ids) == 1:
+                school_id = next(iter(school_ids))
+                session["school_id"] = school_id
+            else:
+                return redirect(url_for("select_school"))
+        if database.get_school_context(school_id) is None:
+            flash("The school has not set a current academic year yet.")
+            return redirect(url_for("dashboard"))
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -108,6 +142,28 @@ def dashboard():
         return "Password change page coming next."
 
     role = session["role"]
+
+    if role == "teacher":
+        memberships = [
+            row for row in database.get_school_memberships(session["user_id"])
+            if row["role"] == "teacher"
+        ]
+        school_ids = {membership["school_id"] for membership in memberships}
+        school_id = session.get("school_id")
+        if school_id not in school_ids:
+            if len(school_ids) == 1:
+                school_id = next(iter(school_ids))
+                session["school_id"] = school_id
+            elif len(school_ids) > 1:
+                return redirect(url_for("select_school"))
+
+        school = database.get_school_context(school_id) if school_id else None
+        assignments = database.get_teacher_class_assignments(
+            school_id, school["academic_year_id"], session["user_id"]
+        ) if school else []
+        return render_template(
+            "teacher_dashboard.html", school=school, assignments=assignments
+        )
 
     if role == "admin":
         memberships = database.get_school_memberships(session["user_id"])
@@ -167,11 +223,15 @@ def school_setup():
 def select_school():
     if "user_id" not in session:
         return redirect(url_for("login"))
-    if session.get("role") != "admin":
-        flash("Only an administrator can select a school workspace.")
+    role = session.get("role")
+    if role not in {"admin", "teacher"}:
+        flash("Your account cannot select a school workspace.")
         return redirect(url_for("dashboard"))
 
-    memberships = database.get_school_memberships(session["user_id"])
+    memberships = [
+        row for row in database.get_school_memberships(session["user_id"])
+        if row["role"] == role
+    ]
     if request.method == "POST":
         try:
             school_id = int(request.form.get("school_id", ""))
@@ -263,6 +323,106 @@ def manage_results():
         subjects=main.SUBJECTS,
         selected_reg=selected_reg,
         selected_student=selected_student
+    )
+
+
+@app.route("/teacher/results", methods=["GET", "POST"])
+@teacher_required
+def teacher_results():
+    school_id = session["school_id"]
+    school = database.get_school_context(school_id)
+    academic_year_id = school["academic_year_id"]
+    teacher_id = session["user_id"]
+    assignments = database.get_teacher_class_assignments(
+        school_id, academic_year_id, teacher_id
+    )
+    assigned_class_ids = {assignment["class_id"] for assignment in assignments}
+    terms = database.get_terms_for_year(academic_year_id)
+
+    if request.method == "POST":
+        registration = request.form.get("reg_no", "").strip()
+        try:
+            class_id = int(request.form.get("class_id", ""))
+            term_id = int(request.form.get("term_id", ""))
+        except ValueError:
+            class_id = term_id = None
+        if class_id not in assigned_class_ids:
+            flash("Choose one of your assigned classes.")
+            return redirect(url_for("teacher_results"))
+        if term_id not in {term["id"] for term in terms}:
+            flash("Choose a term in the current academic year.")
+            return redirect(url_for("teacher_results", class_id=class_id))
+
+        scores = {}
+        try:
+            for subject in main.SUBJECTS:
+                score = float(request.form.get(subject, ""))
+                if not 0 <= score <= 100:
+                    raise ValueError
+                scores[subject] = score
+        except ValueError:
+            flash("Enter a valid score from 0 to 100 for every subject.")
+            return redirect(url_for(
+                "teacher_results", class_id=class_id, term_id=term_id,
+                selected=registration
+            ))
+
+        try:
+            student = database.create_student_term_results(
+                school_id, academic_year_id, registration, term_id, scores,
+                teacher_id, teacher_id=teacher_id, class_id=class_id
+            )
+        except (ValueError, sqlite3.IntegrityError) as error:
+            flash(str(error) or "Unable to save these results.")
+        else:
+            flash(f"Results saved for {student['name']}.")
+        return redirect(url_for(
+            "teacher_results", class_id=class_id, term_id=term_id,
+            selected=registration
+        ))
+
+    try:
+        selected_class_id = int(request.args.get("class_id", ""))
+    except ValueError:
+        selected_class_id = None
+    if selected_class_id not in assigned_class_ids:
+        selected_class_id = assignments[0]["class_id"] if assignments else None
+    try:
+        selected_term_id = int(request.args.get("term_id", ""))
+    except ValueError:
+        selected_term_id = None
+    if selected_term_id not in {term["id"] for term in terms}:
+        selected_term_id = terms[0]["id"] if terms else None
+
+    students = database.get_students_for_year(
+        school_id, academic_year_id, teacher_id, selected_class_id
+    ) if selected_class_id else []
+    results = database.get_results_for_term(
+        school_id, academic_year_id, selected_term_id,
+        teacher_id, selected_class_id
+    ) if selected_class_id and selected_term_id else []
+    selected_reg = request.args.get("selected", "")
+    selected_student = next(
+        (student for student in results
+         if student["reg_no"].lower() == selected_reg.lower()),
+        None
+    )
+    for student in results:
+        if student["average"] is not None:
+            student["grade"] = main.calculate_grade(student["average"])
+
+    return render_template(
+        "teacher_results.html",
+        school=school,
+        assignments=assignments,
+        terms=terms,
+        students=students,
+        results=results,
+        subjects=main.SUBJECTS,
+        selected_class_id=selected_class_id,
+        selected_term_id=selected_term_id,
+        selected_reg=selected_reg,
+        selected_student=selected_student,
     )
 
 
