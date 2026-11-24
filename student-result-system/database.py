@@ -185,6 +185,38 @@ def initialize_database():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS school_memberships (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('admin', 'teacher', 'student')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (school_id, user_id),
+            FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS teacher_class_assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            teacher_id INTEGER NOT NULL,
+            class_id INTEGER NOT NULL,
+            academic_year_id INTEGER NOT NULL,
+            assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (school_id, teacher_id, class_id, academic_year_id),
+            FOREIGN KEY (school_id, teacher_id)
+                REFERENCES school_memberships(school_id, user_id)
+                ON DELETE CASCADE,
+            FOREIGN KEY (school_id, class_id)
+                REFERENCES school_classes(school_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (school_id, academic_year_id)
+                REFERENCES academic_years(school_id, id) ON DELETE CASCADE
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS enrollments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             school_id INTEGER NOT NULL,
@@ -383,6 +415,155 @@ def enroll_student(student_id, class_id, academic_year_id, enrollment_date):
         """, (student["school_id"], student_id, class_id, academic_year_id,
               enrolled_on.isoformat()))
         return cursor.lastrowid
+
+
+def setup_initial_school(admin_id, name, code, year_name, start_date, end_date,
+                         class_names):
+    """Create the first school, current year, classes, and admin membership."""
+    name = (name or "").strip()
+    code = (code or "").strip().upper() or None
+    year_name = (year_name or "").strip()
+    start = _validated_date(start_date, "Academic year start date")
+    end = _validated_date(end_date, "Academic year end date")
+    class_names = list(dict.fromkeys(
+        class_name.strip() for class_name in class_names if class_name.strip()
+    ))
+    if not name or not year_name:
+        raise ValueError("School and academic year names are required.")
+    if start > end:
+        raise ValueError("Academic year start date must be before its end date.")
+    if not class_names:
+        raise ValueError("Add at least one class to continue.")
+
+    with _connection_scope() as connection:
+        admin = connection.execute(
+            "SELECT role FROM users WHERE id = ?", (admin_id,)
+        ).fetchone()
+        if admin is None or admin["role"] != "admin":
+            raise ValueError("Only an administrator can set up a school.")
+        if connection.execute("SELECT 1 FROM schools LIMIT 1").fetchone():
+            raise ValueError("A school has already been configured.")
+
+        cursor = connection.execute(
+            "INSERT INTO schools (name, code) VALUES (?, ?)", (name, code)
+        )
+        school_id = cursor.lastrowid
+        year_cursor = connection.execute("""
+            INSERT INTO academic_years (
+                school_id, name, start_date, end_date, is_current
+            ) VALUES (?, ?, ?, ?, 1)
+        """, (school_id, year_name, start.isoformat(), end.isoformat()))
+        academic_year_id = year_cursor.lastrowid
+
+        for sort_order, class_name in enumerate(class_names):
+            prefix = class_name.split(maxsplit=1)[0]
+            level = {
+                "Primary": "Primary",
+                "JSS": "Junior Secondary",
+                "SS": "Senior Secondary",
+            }.get(prefix)
+            connection.execute("""
+                INSERT INTO school_classes (school_id, name, level, sort_order)
+                VALUES (?, ?, ?, ?)
+            """, (school_id, class_name, level, sort_order))
+
+        connection.execute("""
+            INSERT INTO school_memberships (school_id, user_id, role)
+            VALUES (?, ?, 'admin')
+        """, (school_id, admin_id))
+        return {"school_id": school_id, "academic_year_id": academic_year_id}
+
+
+def get_school_memberships(user_id):
+    with _connection_scope() as connection:
+        return connection.execute("""
+            SELECT schools.id AS school_id, schools.name AS school_name,
+                   school_memberships.role
+            FROM school_memberships
+            JOIN schools ON schools.id = school_memberships.school_id
+            WHERE school_memberships.user_id = ?
+            ORDER BY schools.name
+        """, (user_id,)).fetchall()
+
+
+def get_school_context(school_id):
+    with _connection_scope() as connection:
+        return connection.execute("""
+            SELECT schools.id AS school_id, schools.name AS school_name,
+                   academic_years.id AS academic_year_id,
+                   academic_years.name AS academic_year_name,
+                   academic_years.start_date, academic_years.end_date
+            FROM schools
+            JOIN academic_years ON academic_years.school_id = schools.id
+            WHERE schools.id = ? AND academic_years.is_current = 1
+        """, (school_id,)).fetchone()
+
+
+def get_school_count():
+    with _connection_scope() as connection:
+        return connection.execute("SELECT COUNT(*) FROM schools").fetchone()[0]
+
+
+def get_school_classes(school_id):
+    with _connection_scope() as connection:
+        return connection.execute("""
+            SELECT id, name, level, section
+            FROM school_classes
+            WHERE school_id = ? AND is_active = 1
+            ORDER BY sort_order, name
+        """, (school_id,)).fetchall()
+
+
+def get_teachers_for_school(school_id):
+    with _connection_scope() as connection:
+        return connection.execute("""
+            SELECT id, username FROM users
+            WHERE role = 'teacher'
+            ORDER BY username
+        """).fetchall()
+
+
+def assign_teacher_to_school_class(school_id, teacher_id, class_id,
+                                   academic_year_id):
+    """Assign a teacher to a class for this school's academic year."""
+    with _connection_scope() as connection:
+        teacher = connection.execute(
+            "SELECT role FROM users WHERE id = ?", (teacher_id,)
+        ).fetchone()
+        if teacher is None or teacher["role"] != "teacher":
+            raise ValueError("Choose a valid teacher account.")
+
+        membership = connection.execute("""
+            SELECT role FROM school_memberships
+            WHERE school_id = ? AND user_id = ?
+        """, (school_id, teacher_id)).fetchone()
+        if membership is None:
+            connection.execute("""
+                INSERT INTO school_memberships (school_id, user_id, role)
+                VALUES (?, ?, 'teacher')
+            """, (school_id, teacher_id))
+        elif membership["role"] != "teacher":
+            raise ValueError("The selected account is not a teacher in this school.")
+        cursor = connection.execute("""
+            INSERT INTO teacher_class_assignments (
+                school_id, teacher_id, class_id, academic_year_id
+            ) VALUES (?, ?, ?, ?)
+        """, (school_id, teacher_id, class_id, academic_year_id))
+        return cursor.lastrowid
+
+
+def get_teacher_class_assignments(school_id, academic_year_id):
+    with _connection_scope() as connection:
+        return connection.execute("""
+            SELECT users.username, school_classes.name AS class_name
+            FROM teacher_class_assignments
+            JOIN users ON users.id = teacher_class_assignments.teacher_id
+            JOIN school_classes ON school_classes.id = teacher_class_assignments.class_id
+            WHERE teacher_class_assignments.school_id = ?
+              AND teacher_class_assignments.academic_year_id = ?
+            ORDER BY users.username, school_classes.sort_order,
+                     school_classes.name
+        """, (school_id, academic_year_id)).fetchall()
 
 
 def get_teachers():

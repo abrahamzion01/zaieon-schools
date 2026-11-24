@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Set Up School | ZAIEON Schools</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <img src="{{ url_for('static', filename='images/zaieon-schools-logo.png') }}" alt="ZAIEON Schools Logo">
+        <h1>ZAIEON Schools</h1>
+        <p>Empowering Schools. Developing Futures.</p>
+    </header>
+
+    <main class="login-main">
+        <section class="login-card">
+            {% if already_configured %}
+                <h2>School already set up</h2>
+                <p class="login-description">This installation already has a school workspace. Ask its administrator to link your account.</p>
+            {% else %}
+                <h2>Set up your school</h2>
+                <p class="login-description">Add your school and current academic year. We’ll prepare the standard primary and secondary classes for you.</p>
+
+                {% with messages = get_flashed_messages() %}
+                    {% if messages %}
+                        {% for message in messages %}<div class="flash-message">{{ message }}</div>{% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <form method="post" action="{{ url_for('school_setup') }}">
+                    <label for="school-name">School name</label>
+                    <input id="school-name" name="school_name" type="text" maxlength="120" required>
+
+                    <label for="school-code">School code (optional)</label>
+                    <input id="school-code" name="school_code" type="text" maxlength="32">
+
+                    <label for="year-name">Current academic year</label>
+                    <input id="year-name" name="year_name" type="text" placeholder="2026/2027" required>
+
+                    <label for="start-date">Academic year starts</label>
+                    <input id="start-date" name="start_date" type="date" required>
+
+                    <label for="end-date">Academic year ends</label>
+                    <input id="end-date" name="end_date" type="date" required>
+
+                    <button type="submit">Set Up School</button>
+                </form>
+            {% endif %}
+            <a href="{{ url_for('logout') }}" class="back-link">Sign Out</a>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2026 ZAIEON Schools. All rights reserved.</p>
+        <p>Powered by ZAIEON Technologies</p>
+    </footer>
+</body>
+</html>

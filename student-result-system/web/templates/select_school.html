@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select School | ZAIEON Schools</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <img src="{{ url_for('static', filename='images/zaieon-schools-logo.png') }}" alt="ZAIEON Schools Logo">
+        <h1>ZAIEON Schools</h1>
+    </header>
+
+    <main class="login-main">
+        <section class="login-card">
+            <h2>Select a school</h2>
+            <p class="login-description">Choose the school workspace you want to manage.</p>
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    {% for message in messages %}<div class="flash-message">{{ message }}</div>{% endfor %}
+                {% endif %}
+            {% endwith %}
+            <form method="post" action="{{ url_for('select_school') }}">
+                <label for="school-id">School</label>
+                <select id="school-id" name="school_id" required>
+                    <option value="">Select a school</option>
+                    {% for school in schools %}
+                        <option value="{{ school.school_id }}">{{ school.school_name }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit">Continue</button>
+            </form>
+            <a href="{{ url_for('logout') }}" class="back-link">Sign Out</a>
+        </section>
+    </main>
+</body>
+</html>

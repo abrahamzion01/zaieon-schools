@@ -58,9 +58,12 @@ classes, students, and yearly class enrollments. Registration numbers are unique
 within each school, enrollment links are constrained to the same school, and
 term and enrollment dates are checked against their academic year.
 
-This schema is an additive foundation. Existing `students.json` records and
-legacy attendance and teacher-class tables are preserved; the current screens
-still use those existing paths until each workflow is migrated deliberately.
+The first administrator sets up the school and current academic year in the web
+app. New student registration now creates the login, student profile, and class
+enrollment together; teacher assignments are linked to a school, class, and
+academic year. Existing `students.json` records and legacy attendance and
+teacher-class tables are preserved. The web results screen still uses the JSON
+record file as a compatibility mirror while results are migrated separately.
 
 ## Project Structure
 

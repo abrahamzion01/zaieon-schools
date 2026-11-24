@@ -1,6 +1,7 @@
 
 from datetime import date
 from functools import wraps
+import sqlite3
 
 from flask import (
     Flask, render_template, request,
@@ -22,7 +23,7 @@ app = Flask(__name__)
 app.secret_key = "change-this-to-a-secure-random-secret-before-deployment"
 main.load_students()
 
-SCHOOL_CLASSES = [
+STANDARD_CLASSES = [
     "Primary 1", "Primary 2", "Primary 3",
     "Primary 4", "Primary 5", "Primary 6",
     "JSS 1", "JSS 2", "JSS 3",
@@ -42,6 +43,26 @@ def admin_required(view):
 
         if session.get("must_change_password"):
             return "Password change page coming next."
+
+        memberships = database.get_school_memberships(session["user_id"])
+        if not memberships:
+            if database.get_school_count() == 0:
+                return redirect(url_for("school_setup"))
+            flash("This administrator account is not linked to a school.")
+            return redirect(url_for("dashboard"))
+
+        school_ids = {membership["school_id"] for membership in memberships}
+        school_id = session.get("school_id")
+        if school_id not in school_ids:
+            if len(school_ids) == 1:
+                school_id = next(iter(school_ids))
+                session["school_id"] = school_id
+            else:
+                return redirect(url_for("select_school"))
+
+        if database.get_school_context(school_id) is None:
+            flash("Set a current academic year before using school records.")
+            return redirect(url_for("dashboard"))
 
         return view(*args, **kwargs)
 
@@ -88,7 +109,81 @@ def dashboard():
 
     role = session["role"]
 
+    if role == "admin":
+        memberships = database.get_school_memberships(session["user_id"])
+        if not memberships:
+            if database.get_school_count() == 0:
+                return redirect(url_for("school_setup"))
+            return render_template(
+                "school_setup.html", already_configured=True,
+                classes=STANDARD_CLASSES
+            )
+        school_ids = {membership["school_id"] for membership in memberships}
+        if session.get("school_id") not in school_ids:
+            if len(school_ids) == 1:
+                session["school_id"] = next(iter(school_ids))
+            else:
+                return redirect(url_for("select_school"))
+
     return render_template("dashboard.html")
+
+
+@app.route("/school-setup", methods=["GET", "POST"])
+def school_setup():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    if session.get("role") != "admin":
+        flash("Only an administrator can set up a school.")
+        return redirect(url_for("dashboard"))
+    if database.get_school_memberships(session["user_id"]):
+        return redirect(url_for("dashboard"))
+
+    already_configured = database.get_school_count() > 0
+    if request.method == "POST" and not already_configured:
+        try:
+            database.setup_initial_school(
+                session["user_id"],
+                request.form.get("school_name", ""),
+                request.form.get("school_code", ""),
+                request.form.get("year_name", ""),
+                request.form.get("start_date", ""),
+                request.form.get("end_date", ""),
+                STANDARD_CLASSES,
+            )
+        except (ValueError, sqlite3.IntegrityError) as error:
+            flash(str(error))
+        else:
+            flash("School setup is complete. You can now register students and assign teachers.")
+            return redirect(url_for("dashboard"))
+
+    return render_template(
+        "school_setup.html",
+        already_configured=already_configured,
+        classes=STANDARD_CLASSES,
+    )
+
+
+@app.route("/select-school", methods=["GET", "POST"])
+def select_school():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    if session.get("role") != "admin":
+        flash("Only an administrator can select a school workspace.")
+        return redirect(url_for("dashboard"))
+
+    memberships = database.get_school_memberships(session["user_id"])
+    if request.method == "POST":
+        try:
+            school_id = int(request.form.get("school_id", ""))
+        except ValueError:
+            school_id = None
+        if school_id not in {row["school_id"] for row in memberships}:
+            flash("Choose a school linked to your account.")
+        else:
+            session["school_id"] = school_id
+            return redirect(url_for("dashboard"))
+
+    return render_template("select_school.html", schools=memberships)
 
 
 @app.route("/results", methods=["GET", "POST"])
@@ -152,39 +247,46 @@ def manage_results():
 @admin_required
 def manage_teachers():
     database.initialize_database()
-    teachers = database.get_teachers()
+    school_id = session["school_id"]
+    school = database.get_school_context(school_id)
+    classes = database.get_school_classes(school_id)
+    teachers = database.get_teachers_for_school(school_id)
 
     if request.method == "POST":
         try:
             teacher_id = int(request.form.get("teacher_id", ""))
+            class_id = int(request.form.get("class_id", ""))
         except ValueError:
             teacher_id = None
+            class_id = None
 
-        class_name = request.form.get("class_name", "")
         teacher = next(
             (record for record in teachers if record["id"] == teacher_id),
             None
         )
+        school_class = next(
+            (record for record in classes if record["id"] == class_id), None
+        )
 
-        if teacher is None or class_name not in SCHOOL_CLASSES:
+        if teacher is None or school_class is None:
             flash("Choose a valid teacher and class.")
-        elif database.assign_teacher_to_class(teacher_id, class_name):
-            flash(f"{class_name} assigned to {teacher['username']}.")
         else:
-            flash("That teacher already has this class assigned.")
+            try:
+                database.assign_teacher_to_school_class(
+                    school_id, teacher_id, class_id, school["academic_year_id"]
+                )
+            except sqlite3.IntegrityError:
+                flash("That teacher already has this class assigned for the current year.")
+            except ValueError as error:
+                flash(str(error))
+            else:
+                flash(f"{school_class['name']} assigned to {teacher['username']}.")
 
         return redirect(url_for("manage_teachers"))
 
-    connection = database.get_connection()
-    try:
-        assignments = connection.execute("""
-            SELECT users.username, teacher_classes.class_name
-            FROM teacher_classes
-            JOIN users ON users.id = teacher_classes.teacher_id
-            ORDER BY users.username, teacher_classes.class_name
-        """).fetchall()
-    finally:
-        connection.close()
+    assignments = database.get_teacher_class_assignments(
+        school_id, school["academic_year_id"]
+    )
 
     return render_template(
         "admin_section.html",
@@ -192,7 +294,7 @@ def manage_teachers():
         page_title="Manage Teachers",
         page_description="Review teachers and assign their classes.",
         teachers=teachers,
-        classes=SCHOOL_CLASSES,
+        classes=classes,
         assignments=assignments
     )
 
@@ -200,6 +302,9 @@ def manage_teachers():
 @app.route("/attendance")
 @admin_required
 def attendance_overview():
+    school_id = session["school_id"]
+    classes = database.get_school_classes(school_id)
+    class_names = {school_class["name"] for school_class in classes}
     attendance_date = request.args.get("date", date.today().isoformat())
     try:
         date.fromisoformat(attendance_date)
@@ -208,7 +313,7 @@ def attendance_overview():
         flash("Choose a valid attendance date.")
 
     selected_class = request.args.get("class_name", "")
-    if selected_class and selected_class not in SCHOOL_CLASSES:
+    if selected_class and selected_class not in class_names:
         selected_class = ""
         flash("Choose a valid class.")
 
@@ -232,44 +337,52 @@ def attendance_overview():
         page="attendance",
         page_title="Attendance",
         page_description="Review attendance records by date and class.",
-        classes=SCHOOL_CLASSES,
+        classes=classes,
         attendance_date=attendance_date,
         selected_class=selected_class,
         attendance_records=records
     )
 
 @app.route("/register", methods=["GET", "POST"])
+@admin_required
 def register_student():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-
-    if session.get("role") != "admin":
-        flash("You are not authorized to register students.")
-        return redirect(url_for("dashboard"))
+    school_id = session["school_id"]
+    school = database.get_school_context(school_id)
+    classes = database.get_school_classes(school_id)
+    enrollment_date_default = min(
+        max(date.today(), date.fromisoformat(school["start_date"])),
+        date.fromisoformat(school["end_date"]),
+    ).isoformat()
 
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         registration = request.form.get("reg_no", "").strip()
-        student_class = request.form.get("class_name", "").strip()
         username = request.form.get("username", "").strip()
+        enrollment_date = request.form.get("enrollment_date", "").strip()
+        try:
+            enrolled_on = date.fromisoformat(enrollment_date)
+        except ValueError:
+            enrolled_on = None
+        try:
+            class_id = int(request.form.get("class_id", ""))
+        except ValueError:
+            class_id = None
+        school_class = next(
+            (record for record in classes if record["id"] == class_id), None
+        )
 
-        school_classes = [
-            "Primary 1", "Primary 2", "Primary 3",
-            "Primary 4", "Primary 5", "Primary 6",
-            "JSS 1", "JSS 2", "JSS 3",
-            "SS 1", "SS 2", "SS 3"
-        ]
-
-        if not all([name, registration, student_class, username]):
+        if (not all([name, registration, username]) or school_class is None
+                or enrolled_on is None):
             flash("Please complete all fields.")
+            return redirect(url_for("register_student"))
+
+        if not (date.fromisoformat(school["start_date"])
+                <= enrolled_on <= date.fromisoformat(school["end_date"])):
+            flash("Enrollment date must fall within the current academic year.")
             return redirect(url_for("register_student"))
 
         if not any(character.isalpha() for character in name):
             flash("Please enter a valid student name.")
-            return redirect(url_for("register_student"))
-
-        if student_class not in school_classes:
-            flash("Please select a valid class.")
             return redirect(url_for("register_student"))
 
         if any(
@@ -281,21 +394,25 @@ def register_student():
 
         temporary_password = secrets.token_urlsafe(9)
 
-        registered = authentication.register_user(
+        user_id = authentication.register_student_with_enrollment(
             username,
             temporary_password,
-            "student",
-            registration
+            registration,
+            name,
+            school_id,
+            class_id,
+            school["academic_year_id"],
+            enrolled_on.isoformat()
         )
 
-        if not registered:
+        if user_id is None:
             flash("Account creation failed. Check the username and registration number.")
             return redirect(url_for("register_student"))
 
         main.students.append({
             "name": name,
             "reg_no": registration,
-            "class_name": student_class,
+            "class_name": school_class["name"],
             "subjects": {},
             "total": None,
             "average": None,
@@ -308,10 +425,16 @@ def register_student():
             "register.html",
             temporary_password=temporary_password,
             student_name=name,
-            username=username
+            username=username,
+            classes=classes,
+            enrollment_date_default=enrollment_date_default
         )
 
-    return render_template("register.html")
+    return render_template(
+        "register.html",
+        classes=classes,
+        enrollment_date_default=enrollment_date_default,
+    )
 
 @app.route("/logout")
 def logout():
