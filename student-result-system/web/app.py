@@ -615,11 +615,30 @@ def teacher_results():
 @app.route("/terms", methods=["GET", "POST"])
 @admin_required
 def manage_terms():
-    school = database.get_school_context(session["school_id"])
+    school_id = session["school_id"]
+    current_year = database.get_school_context(school_id)
+    requested_year_id = (
+        request.form.get("academic_year_id", "")
+        if request.method == "POST"
+        else request.args.get("academic_year_id", "")
+    )
+    try:
+        academic_year_id = int(requested_year_id)
+    except (TypeError, ValueError):
+        academic_year_id = current_year["academic_year_id"]
+    school = database.get_school_academic_year(school_id, academic_year_id)
+    if school is None:
+        flash("Choose an academic year belonging to this school.")
+        if request.method == "POST":
+            return redirect(url_for("manage_terms"))
+        school = current_year
+    academic_year_id = school["academic_year_id"]
+    academic_years = database.get_school_academic_years(school_id)
+
     if request.method == "POST":
         try:
             database.create_term(
-                school["academic_year_id"],
+                academic_year_id,
                 request.form.get("name", ""),
                 request.form.get("sequence", ""),
                 request.form.get("start_date", ""),
@@ -632,7 +651,9 @@ def manage_terms():
             flash(message)
         else:
             flash("Academic term added.")
-            return redirect(url_for("manage_terms"))
+            return redirect(url_for(
+                "manage_terms", academic_year_id=academic_year_id
+            ))
 
     return render_template(
         "admin_section.html",
@@ -640,7 +661,51 @@ def manage_terms():
         page_title="Academic Terms",
         page_description=f"Set terms for {school['academic_year_name']}.",
         academic_year=school,
-        terms=database.get_terms_for_year(school["academic_year_id"]),
+        academic_years=academic_years,
+        terms=database.get_terms_for_year(academic_year_id),
+    )
+
+
+@app.route("/academic-years", methods=["GET", "POST"])
+@admin_required
+def manage_academic_years():
+    school_id = session["school_id"]
+    if request.method == "POST":
+        action = request.form.get("action", "create")
+        if action == "set-current":
+            try:
+                year_id = int(request.form.get("academic_year_id", ""))
+                database.set_current_academic_year(school_id, year_id)
+            except (TypeError, ValueError) as error:
+                flash(str(error) or "Choose an academic year belonging to this school.")
+            else:
+                flash("Current academic year updated.")
+            return redirect(url_for("manage_academic_years"))
+
+        try:
+            year_id = database.create_academic_year(
+                school_id,
+                request.form.get("name", ""),
+                request.form.get("start_date", ""),
+                request.form.get("end_date", ""),
+                is_current=request.form.get("make_current") == "yes",
+            )
+        except (ValueError, sqlite3.IntegrityError) as error:
+            message = str(error)
+            if isinstance(error, sqlite3.IntegrityError):
+                message = "That academic year name is already in use."
+            flash(message)
+        else:
+            flash("Academic year added.")
+            return redirect(url_for("manage_terms", academic_year_id=year_id))
+
+    school = database.get_school_context(school_id)
+    return render_template(
+        "admin_section.html",
+        page="academic_years",
+        page_title="Academic Years",
+        page_description=f"Manage academic years for {school['school_name']}.",
+        academic_years=database.get_school_academic_years(school_id),
     )
 
 

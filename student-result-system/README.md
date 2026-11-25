@@ -21,6 +21,7 @@ The project is being developed with a focus on simplifying school administration
 - Administrator, teacher and student authentication.
 - Teacher class assignment.
 - Class-based attendance management.
+- Create and activate school academic years, with terms prepared per year.
 - Persistent data storage.
 
 ## School Structure

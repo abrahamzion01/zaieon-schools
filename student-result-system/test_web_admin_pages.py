@@ -222,6 +222,76 @@ def test_terms_page_creates_only_valid_current_year_terms(admin_client):
     assert b"Term dates cannot overlap another term." in overlapping.data
 
 
+def test_admin_can_prepare_and_activate_academic_years(admin_client):
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+    original_year = database.get_school_context(school_id)
+
+    overlapping = admin_client.post("/academic-years", data={
+        "name": "Overlapping Year",
+        "start_date": "2027-07-01",
+        "end_date": "2028-06-30",
+    }, follow_redirects=True)
+    assert b"Academic year dates cannot overlap another year." in overlapping.data
+    assert len(database.get_school_academic_years(school_id)) == 1
+
+    created = admin_client.post("/academic-years", data={
+        "name": "2027/2028",
+        "start_date": "2027-09-01",
+        "end_date": "2028-07-31",
+    }, follow_redirects=True)
+    assert created.status_code == 200
+    assert b"Academic year added." in created.data
+    assert b"2027/2028" in created.data
+    assert database.get_school_context(school_id)["academic_year_id"] == original_year["academic_year_id"]
+
+    planned_year = next(
+        year for year in database.get_school_academic_years(school_id)
+        if year["name"] == "2027/2028"
+    )
+    terms_page = admin_client.get(
+        f"/terms?academic_year_id={planned_year['id']}"
+    )
+    assert terms_page.status_code == 200
+    assert b"Add a term to 2027/2028" in terms_page.data
+
+    add_term = admin_client.post("/terms", data={
+        "academic_year_id": str(planned_year["id"]),
+        "name": "First Term",
+        "sequence": "1",
+        "start_date": "2027-09-01",
+        "end_date": "2027-12-17",
+    }, follow_redirects=True)
+    assert b"Academic term added." in add_term.data
+    assert b"First Term" in add_term.data
+    assert database.get_school_context(school_id)["academic_year_id"] == original_year["academic_year_id"]
+
+    activated = admin_client.post("/academic-years", data={
+        "action": "set-current",
+        "academic_year_id": str(planned_year["id"]),
+    }, follow_redirects=True)
+    assert b"Current academic year updated." in activated.data
+    current_year = database.get_school_context(school_id)
+    assert current_year["academic_year_name"] == "2027/2028"
+    assert current_year["academic_year_id"] == planned_year["id"]
+
+
+def test_terms_route_rejects_an_academic_year_outside_the_school(admin_client):
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+    response = admin_client.post("/terms", data={
+        "academic_year_id": "99999",
+        "name": "Unauthorized Term",
+        "sequence": "1",
+        "start_date": "2026-09-01",
+        "end_date": "2026-12-18",
+    }, follow_redirects=True)
+    assert b"Choose an academic year belonging to this school." in response.data
+    assert database.get_terms_for_year(
+        database.get_school_context(school_id)["academic_year_id"]
+    ) == []
+
+
 def test_teacher_page_assigns_a_class(admin_client):
     assert authentication.register_user(
         "teacher-test", "TeacherPassword123", "teacher"

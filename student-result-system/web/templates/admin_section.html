@@ -23,6 +23,7 @@
             <a href="{{ url_for('import_legacy_students') }}" class="nav-link {{ 'active' if page == 'legacy_import' else '' }}"><span>⇧</span> Import Students</a>
             <a href="{{ url_for('manage_results') }}" class="nav-link {{ 'active' if page == 'results' else '' }}"><span>▤</span> Academic Results</a>
             <a href="{{ url_for('manage_subjects') }}" class="nav-link {{ 'active' if page == 'subjects' else '' }}"><span>▧</span> Subjects</a>
+            <a href="{{ url_for('manage_academic_years') }}" class="nav-link {{ 'active' if page == 'academic_years' else '' }}"><span>▦</span> Academic Years</a>
             <a href="{{ url_for('manage_terms') }}" class="nav-link {{ 'active' if page == 'terms' else '' }}"><span>▦</span> Academic Terms</a>
             <a href="{{ url_for('attendance_overview') }}" class="nav-link {{ 'active' if page == 'attendance' else '' }}"><span>◷</span> Attendance</a>
             <a href="{{ url_for('manage_teachers') }}" class="nav-link {{ 'active' if page == 'teachers' else '' }}"><span>♧</span> Teachers</a>
@@ -192,11 +193,78 @@
                 {% endif %}
             </section>
 
+        {% elif page == 'academic_years' %}
+            <section class="management-panel">
+                <h2>Add an academic year</h2>
+                <p>You can prepare a future year and its terms before making it current. Switching the current year changes the year used for registration and score entry. Student enrollments are not copied automatically, so enroll students for the new year before entering scores.</p>
+                <form class="management-form" method="post" action="{{ url_for('manage_academic_years') }}">
+                    <div class="form-field">
+                        <label for="academic-year-name">Year name</label>
+                        <input id="academic-year-name" name="name" type="text" placeholder="2027/2028" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="academic-year-start">Start date</label>
+                        <input id="academic-year-start" name="start_date" type="date" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="academic-year-end">End date</label>
+                        <input id="academic-year-end" name="end_date" type="date" required>
+                    </div>
+                    <label class="subject-offering-choice year-current-choice">
+                        <input type="checkbox" name="make_current" value="yes">
+                        <span>Make this the current year now</span>
+                    </label>
+                    <button class="management-submit" type="submit">Add Academic Year</button>
+                </form>
+            </section>
+            <section class="management-panel">
+                <h2>School academic years</h2>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>Year</th><th>Start date</th><th>End date</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            {% for year in academic_years %}
+                                <tr>
+                                    <td>{{ year.name }}</td>
+                                    <td>{{ year.start_date }}</td>
+                                    <td>{{ year.end_date }}</td>
+                                    <td>{{ 'Current' if year.is_current else 'Planned' }}</td>
+                                    <td>
+                                        <a class="inline-action" href="{{ url_for('manage_terms', academic_year_id=year.id) }}">Manage terms</a>
+                                        {% if not year.is_current %}
+                                            <form class="inline-year-action" method="post" action="{{ url_for('manage_academic_years') }}">
+                                                <input type="hidden" name="action" value="set-current">
+                                                <input type="hidden" name="academic_year_id" value="{{ year.id }}">
+                                                <button class="inline-action-button" type="submit">Make current</button>
+                                            </form>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="5" class="empty-state">No academic years have been created.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
         {% elif page == 'terms' %}
             <section class="management-panel">
                 <h2>Add a term to {{ academic_year.academic_year_name }}</h2>
                 <p>Term dates must fit within the academic year and cannot overlap another term.</p>
+                <form class="management-form" method="get" action="{{ url_for('manage_terms') }}">
+                    <div class="form-field">
+                        <label for="terms-year">Academic year</label>
+                        <select id="terms-year" name="academic_year_id" required>
+                            {% for year in academic_years %}
+                                <option value="{{ year.id }}" {{ 'selected' if academic_year.academic_year_id == year.id else '' }}>{{ year.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button class="management-submit" type="submit">View Terms</button>
+                </form>
                 <form class="management-form" method="post" action="{{ url_for('manage_terms') }}">
+                    <input type="hidden" name="academic_year_id" value="{{ academic_year.academic_year_id }}">
                     <div class="form-field">
                         <label for="term-name">Term name</label>
                         <input id="term-name" name="name" type="text" placeholder="First Term" required>
