@@ -771,6 +771,59 @@ footer {
     accent-color: #18A6A0;
 }
 
+.attendance-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+    gap: 12px;
+    margin: 18px 0;
+}
+
+.attendance-summary-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 16px;
+    background: #F7F9FC;
+    border: 1px solid #E8EDF3;
+    border-radius: 9px;
+}
+
+.attendance-summary-card strong {
+    color: #10233F;
+    font-size: 20px;
+}
+
+.attendance-summary-card span,
+.attendance-help {
+    color: #718096;
+    font-size: 13px;
+}
+
+.attendance-register-form {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    margin-top: 16px;
+}
+
+.attendance-register-form > .table-container,
+.attendance-help {
+    width: 100%;
+}
+
+.attendance-table select {
+    width: 100%;
+    min-width: 125px;
+    min-height: 38px;
+    padding: 6px 9px;
+    color: #263445;
+    background: #FFFFFF;
+    border: 1px solid #DCE3EC;
+    border-radius: 7px;
+    font: inherit;
+}
+
 .subject-score-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 90px;

@@ -189,6 +189,24 @@ def teacher_required(view):
     return wrapped
 
 
+def school_staff_required(view):
+    admin_view = admin_required(view)
+    teacher_view = teacher_required(view)
+
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        if session.get("role") == "admin":
+            return admin_view(*args, **kwargs)
+        if session.get("role") == "teacher":
+            return teacher_view(*args, **kwargs)
+        flash("Only school administrators and teachers can manage attendance.")
+        return redirect(url_for("dashboard"))
+
+    return wrapped
+
+
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -1017,48 +1035,126 @@ def manage_teachers():
     )
 
 
-@app.route("/attendance")
-@admin_required
+@app.route("/attendance", methods=["GET", "POST"])
+@school_staff_required
 def attendance_overview():
     school_id = session["school_id"]
-    classes = database.get_school_classes(school_id)
-    class_names = {school_class["name"] for school_class in classes}
-    attendance_date = request.args.get("date", date.today().isoformat())
+    school = database.get_school_context(school_id)
+    all_classes = database.get_school_classes(school_id)
+    is_teacher = session.get("role") == "teacher"
+    if is_teacher:
+        assignments = database.get_teacher_class_assignments(
+            school_id, school["academic_year_id"], session["user_id"]
+        )
+        assigned_class_ids = {assignment["class_id"] for assignment in assignments}
+        classes = [school_class for school_class in all_classes
+                   if school_class["id"] in assigned_class_ids]
+    else:
+        classes = all_classes
+
+    default_date = min(
+        max(date.today(), date.fromisoformat(school["start_date"])),
+        date.fromisoformat(school["end_date"]),
+    ).isoformat()
+    requested_date = (
+        request.form.get("date", "")
+        if request.method == "POST"
+        else request.args.get("date", "")
+    )
     try:
-        date.fromisoformat(attendance_date)
-    except ValueError:
-        attendance_date = date.today().isoformat()
+        selected_date = date.fromisoformat(requested_date)
+    except (TypeError, ValueError):
+        selected_date = date.fromisoformat(default_date)
+        if requested_date:
+            flash("Choose a valid attendance date.")
+
+    if not (date.fromisoformat(school["start_date"]) <= selected_date
+            <= date.fromisoformat(school["end_date"])):
+        selected_date = date.fromisoformat(default_date)
         flash("Choose a valid attendance date.")
 
-    selected_class = request.args.get("class_name", "")
-    if selected_class and selected_class not in class_names:
-        selected_class = ""
-        flash("Choose a valid class.")
-
-    database.initialize_database()
-    connection = database.get_connection()
+    requested_class_id = (
+        request.form.get("class_id", "")
+        if request.method == "POST"
+        else request.args.get("class_id", "")
+    )
     try:
-        records = connection.execute("""
-            SELECT attendance.reg_no, attendance.class_name,
-                   attendance.status, users.username AS marked_by
-            FROM attendance
-            LEFT JOIN users ON users.id = attendance.marked_by
-            WHERE attendance.attendance_date = ?
-              AND (? = '' OR attendance.class_name = ?)
-            ORDER BY attendance.class_name, attendance.reg_no
-        """, (attendance_date, selected_class, selected_class)).fetchall()
-    finally:
-        connection.close()
+        selected_class_id = int(requested_class_id)
+    except (TypeError, ValueError):
+        selected_class_id = classes[0]["id"] if classes else None
+    selected_class = next(
+        (school_class for school_class in classes
+         if school_class["id"] == selected_class_id),
+        None,
+    )
+    if selected_class_id is not None and selected_class is None:
+        flash("Choose a class available to your account.")
+        if request.method == "POST":
+            selected_class_id = None
+        else:
+            selected_class_id = classes[0]["id"] if classes else None
+            selected_class = classes[0] if classes else None
 
+    if request.method == "POST":
+        if selected_class is None:
+            flash("Choose a class before marking attendance.")
+        elif selected_date.isoformat() != request.form.get("date", ""):
+            flash("Correct the attendance date before saving.")
+        else:
+            statuses = {}
+            try:
+                for enrollment_id in request.form.getlist("enrollment_id"):
+                    statuses[int(enrollment_id)] = request.form.get(
+                        f"status_{enrollment_id}", ""
+                    )
+                counts = database.save_class_attendance(
+                    school_id, school["academic_year_id"], selected_class_id,
+                    selected_date.isoformat(), statuses, session["user_id"],
+                )
+            except (TypeError, ValueError, sqlite3.IntegrityError) as error:
+                flash(str(error) or "Attendance could not be saved.")
+            else:
+                if counts["saved"] and counts["cleared"]:
+                    message = (
+                        f"Saved attendance for {counts['saved']} students and "
+                        f"cleared {counts['cleared']} marks."
+                    )
+                elif counts["saved"]:
+                    message = f"Attendance saved for {counts['saved']} students."
+                elif counts["cleared"]:
+                    message = f"Cleared {counts['cleared']} attendance marks."
+                else:
+                    message = "No attendance marks changed."
+                flash(message)
+                return redirect(url_for(
+                    "attendance_overview", class_id=selected_class_id,
+                    date=selected_date.isoformat()
+                ))
+
+    records = (
+        database.get_attendance_for_class(
+            school_id, school["academic_year_id"], selected_class_id,
+            selected_date.isoformat(),
+        )
+        if selected_class else []
+    )
+    summary = {
+        "total": len(records),
+        "present": sum(record["status"] == "Present" for record in records),
+        "absent": sum(record["status"] == "Absent" for record in records),
+        "late": sum(record["status"] == "Late" for record in records),
+        "unmarked": sum(record["status"] is None for record in records),
+    }
     return render_template(
-        "admin_section.html",
-        page="attendance",
-        page_title="Attendance",
-        page_description="Review attendance records by date and class.",
+        "attendance_register.html",
+        school=school,
+        is_teacher=is_teacher,
         classes=classes,
-        attendance_date=attendance_date,
         selected_class=selected_class,
-        attendance_records=records
+        selected_class_id=selected_class_id,
+        attendance_date=selected_date.isoformat(),
+        attendance_records=records,
+        summary=summary,
     )
 
 @app.route("/register", methods=["GET", "POST"])

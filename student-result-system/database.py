@@ -251,6 +251,29 @@ def initialize_database():
     """)
 
     cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS enrollment_school_id_key
+        ON enrollments(school_id, id)
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS attendance_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            enrollment_id INTEGER NOT NULL,
+            attendance_date TEXT NOT NULL,
+            status TEXT NOT NULL
+                CHECK (status IN ('Present', 'Absent', 'Late')),
+            marked_by INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (school_id, enrollment_id, attendance_date),
+            FOREIGN KEY (school_id, enrollment_id)
+                REFERENCES enrollments(school_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (marked_by) REFERENCES users(id)
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS student_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             enrollment_id INTEGER NOT NULL,
@@ -977,6 +1000,132 @@ def get_students_for_year(school_id, academic_year_id, teacher_id=None,
                      students.full_name
         """, (school_id, academic_year_id, class_id, class_id,
               teacher_id, teacher_id)).fetchall()
+
+
+def get_attendance_for_class(school_id, academic_year_id, class_id,
+                             attendance_date):
+    """Return the selected class roster and its attendance for one day."""
+    attendance_date = _validated_date(attendance_date, "Attendance date")
+    with _connection_scope() as connection:
+        return connection.execute("""
+            SELECT enrollments.id AS enrollment_id,
+                   students.full_name AS name,
+                   students.registration_number AS reg_no,
+                   school_classes.name AS class_name,
+                   attendance_records.status,
+                   users.username AS marked_by
+            FROM enrollments
+            JOIN students ON students.id = enrollments.student_id
+                         AND students.school_id = enrollments.school_id
+            JOIN school_classes ON school_classes.id = enrollments.class_id
+                                AND school_classes.school_id = enrollments.school_id
+            LEFT JOIN attendance_records
+              ON attendance_records.school_id = enrollments.school_id
+             AND attendance_records.enrollment_id = enrollments.id
+             AND attendance_records.attendance_date = ?
+            LEFT JOIN users ON users.id = attendance_records.marked_by
+            WHERE enrollments.school_id = ?
+              AND enrollments.academic_year_id = ?
+              AND enrollments.class_id = ?
+              AND enrollments.status = 'active'
+              AND students.is_active = 1
+            ORDER BY students.full_name, students.registration_number
+        """, (attendance_date.isoformat(), school_id, academic_year_id,
+              class_id)).fetchall()
+
+
+def save_class_attendance(school_id, academic_year_id, class_id,
+                          attendance_date, statuses, marked_by):
+    """Save or clear daily attendance for students in one current class."""
+    attendance_date = _validated_date(attendance_date, "Attendance date")
+    if not isinstance(statuses, dict) or not statuses:
+        raise ValueError("Select attendance for at least one student.")
+
+    saved = 0
+    cleared = 0
+    with _connection_scope() as connection:
+        year = connection.execute("""
+            SELECT start_date, end_date FROM academic_years
+            WHERE school_id = ? AND id = ? AND is_current = 1
+        """, (school_id, academic_year_id)).fetchone()
+        if year is None:
+            raise ValueError("Attendance can only be recorded for the current academic year.")
+        if not (date.fromisoformat(year["start_date"]) <= attendance_date
+                <= date.fromisoformat(year["end_date"])):
+            raise ValueError("Attendance date must fall within the current academic year.")
+
+        school_class = connection.execute("""
+            SELECT 1 FROM school_classes
+            WHERE school_id = ? AND id = ? AND is_active = 1
+        """, (school_id, class_id)).fetchone()
+        if school_class is None:
+            raise ValueError("Choose an active class in this school.")
+
+        actor = connection.execute("""
+            SELECT users.role, school_memberships.role AS membership_role
+            FROM users
+            JOIN school_memberships
+              ON school_memberships.user_id = users.id
+             AND school_memberships.school_id = ?
+            WHERE users.id = ?
+        """, (school_id, marked_by)).fetchone()
+        if (actor is None or actor["role"] not in {"admin", "teacher"}
+                or actor["membership_role"] != actor["role"]):
+            raise ValueError("The selected account cannot record attendance for this school.")
+        if actor["role"] == "teacher":
+            assignment = connection.execute("""
+                SELECT 1 FROM teacher_class_assignments
+                WHERE school_id = ? AND teacher_id = ? AND class_id = ?
+                  AND academic_year_id = ?
+            """, (school_id, marked_by, class_id, academic_year_id)).fetchone()
+            if assignment is None:
+                raise ValueError("You can mark attendance only for your assigned classes.")
+
+        for enrollment_id, status in statuses.items():
+            try:
+                enrollment_id = int(enrollment_id)
+            except (TypeError, ValueError) as error:
+                raise ValueError("Choose a valid student enrollment.") from error
+            status = (status or "").strip()
+            if status not in {"", "Present", "Absent", "Late"}:
+                raise ValueError("Attendance status must be Present, Absent, or Late.")
+            enrollment = connection.execute("""
+                SELECT 1 FROM enrollments
+                JOIN students ON students.id = enrollments.student_id
+                             AND students.school_id = enrollments.school_id
+                WHERE enrollments.id = ?
+                  AND enrollments.school_id = ?
+                  AND enrollments.academic_year_id = ?
+                  AND enrollments.class_id = ?
+                  AND enrollments.status = 'active'
+                  AND students.is_active = 1
+            """, (enrollment_id, school_id, academic_year_id,
+                  class_id)).fetchone()
+            if enrollment is None:
+                raise ValueError("A selected student is not enrolled in this class for the current year.")
+
+            if not status:
+                cursor = connection.execute("""
+                    DELETE FROM attendance_records
+                    WHERE school_id = ? AND enrollment_id = ?
+                      AND attendance_date = ?
+                """, (school_id, enrollment_id, attendance_date.isoformat()))
+                cleared += cursor.rowcount
+                continue
+
+            connection.execute("""
+                INSERT INTO attendance_records (
+                    school_id, enrollment_id, attendance_date, status, marked_by
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(school_id, enrollment_id, attendance_date)
+                DO UPDATE SET status = excluded.status,
+                              marked_by = excluded.marked_by,
+                              updated_at = CURRENT_TIMESTAMP
+            """, (school_id, enrollment_id, attendance_date.isoformat(),
+                  status, marked_by))
+            saved += 1
+
+    return {"saved": saved, "cleared": cleared}
 
 
 def get_results_for_term(school_id, academic_year_id, term_id,

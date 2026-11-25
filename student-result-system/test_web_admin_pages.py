@@ -856,29 +856,99 @@ def test_legacy_import_rolls_back_invalid_class_mapping(admin_client):
 
 
 def test_attendance_page_filters_by_date_and_class(admin_client):
-    assert authentication.register_user(
-        "attendance-teacher", "AttendancePassword123", "teacher"
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+        admin_id = session["user_id"]
+    school = database.get_school_context(school_id)
+    primary_one = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "Primary 1"
     )
-    teacher_id = database.get_teachers()[0]["id"]
-    connection = database.get_connection()
-    try:
-        connection.execute("""
-            INSERT INTO attendance (
-                reg_no, class_name, attendance_date, status, marked_by
-            ) VALUES (?, ?, ?, ?, ?)
-        """, ("REG-TEST-1", "Primary 1", "2026-11-23", "Present", teacher_id))
-        connection.commit()
-    finally:
-        connection.close()
-
-    response = admin_client.get(
-        "/attendance?date=2026-11-23&class_name=Primary+1"
+    student_id = database.create_student(
+        school_id, "REG-TEST-1", "Test Student"
+    )
+    enrollment_id = database.enroll_student(
+        student_id, primary_one["id"], school["academic_year_id"],
+        "2026-09-02"
     )
 
-    assert response.status_code == 200
-    assert b"REG-TEST-1" in response.data
-    assert b"Present" in response.data
-    assert b"attendance-teacher" in response.data
+    saved = admin_client.post("/attendance", data={
+        "class_id": str(primary_one["id"]),
+        "date": "2026-11-23",
+        "enrollment_id": [str(enrollment_id)],
+        f"status_{enrollment_id}": "Present",
+    }, follow_redirects=True)
+
+    assert saved.status_code == 200
+    assert b"Attendance saved for 1 students." in saved.data
+    assert b"REG-TEST-1" in saved.data
+    assert b"Present" in saved.data
+    assert b"admin-test" in saved.data
+    assert b"Not marked" in saved.data
+
+    updated = admin_client.post("/attendance", data={
+        "class_id": str(primary_one["id"]),
+        "date": "2026-11-23",
+        "enrollment_id": [str(enrollment_id)],
+        f"status_{enrollment_id}": "Late",
+    }, follow_redirects=True)
+    assert b"Late" in updated.data
+    records = database.get_attendance_for_class(
+        school_id, school["academic_year_id"], primary_one["id"],
+        "2026-11-23"
+    )
+    assert len(records) == 1
+    assert records[0]["status"] == "Late"
+
+    cleared = admin_client.post("/attendance", data={
+        "class_id": str(primary_one["id"]),
+        "date": "2026-11-23",
+        "enrollment_id": [str(enrollment_id)],
+        f"status_{enrollment_id}": "",
+    }, follow_redirects=True)
+    assert b"Cleared 1 attendance marks." in cleared.data
+    assert b"Not marked" in cleared.data
+
+
+def test_teacher_attendance_is_limited_to_assigned_class(teacher_client):
+    client, school, teacher_id, primary_one_id = teacher_client
+    school_id = school["school_id"]
+    student_id = database.create_student(
+        school_id, "REG-ATTENDANCE-TEACHER", "Attendance Student"
+    )
+    enrollment_id = database.enroll_student(
+        student_id, primary_one_id, school["academic_year_id"],
+        "2026-09-03"
+    )
+
+    page = client.get(
+        f"/attendance?class_id={primary_one_id}&date=2026-11-23"
+    )
+    assert page.status_code == 200
+    assert b"REG-ATTENDANCE-TEACHER" in page.data
+
+    saved = client.post("/attendance", data={
+        "class_id": str(primary_one_id),
+        "date": "2026-11-23",
+        "enrollment_id": [str(enrollment_id)],
+        f"status_{enrollment_id}": "Absent",
+    }, follow_redirects=True)
+    assert b"Attendance saved for 1 students." in saved.data
+
+    primary_two = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "Primary 2"
+    )
+    rejected = client.post("/attendance", data={
+        "class_id": str(primary_two["id"]),
+        "date": "2026-11-23",
+        "enrollment_id": [str(enrollment_id)],
+        f"status_{enrollment_id}": "Present",
+    }, follow_redirects=True)
+    assert b"Choose a class available to your account." in rejected.data
+    assert database.get_attendance_for_class(
+        school_id, school["academic_year_id"], primary_one_id, "2026-11-23"
+    )[0]["status"] == "Absent"
 
 
 def test_admin_pages_redirect_anonymous_visitors_to_login():
