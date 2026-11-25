@@ -894,8 +894,58 @@ def manage_teachers():
     school = database.get_school_context(school_id)
     classes = database.get_school_classes(school_id)
     teachers = database.get_teachers_for_school(school_id)
+    previous_years = [
+        year for year in database.get_school_academic_years(school_id)
+        if not year["is_current"] and year["end_date"] < school["start_date"]
+    ]
+
+    requested_source_id = request.args.get("source_year_id", "")
+    try:
+        source_year_id = int(requested_source_id)
+    except (TypeError, ValueError):
+        source_year_id = previous_years[0]["id"] if previous_years else None
+    source_year = next(
+        (year for year in previous_years if year["id"] == source_year_id), None
+    )
 
     if request.method == "POST":
+        if request.form.get("action") == "copy_assignments":
+            try:
+                source_year_id = int(request.form.get("source_year_id", ""))
+                if not any(year["id"] == source_year_id for year in previous_years):
+                    raise ValueError("Choose a previous academic year in this school.")
+                assignments_to_copy = []
+                for assignment_key in request.form.getlist("assignment"):
+                    try:
+                        teacher_id, class_id = map(int, assignment_key.split(":"))
+                    except (TypeError, ValueError) as error:
+                        raise ValueError("Choose valid teacher assignments to copy.") from error
+                    assignments_to_copy.append((teacher_id, class_id))
+                copied = database.copy_teacher_assignments_to_current_year(
+                    school_id, source_year_id, school["academic_year_id"],
+                    assignments_to_copy,
+                )
+            except (TypeError, ValueError, sqlite3.IntegrityError) as error:
+                message = str(error) or "The teacher assignments could not be copied."
+                if isinstance(error, sqlite3.IntegrityError):
+                    message = "One or more assignments could not be copied because they already exist."
+                flash(message)
+            else:
+                copied_count = copied["copied"]
+                skipped_count = copied["already_assigned"]
+                if copied_count:
+                    label = "assignment" if copied_count == 1 else "assignments"
+                    message = f"Copied {copied_count} teacher {label}."
+                else:
+                    message = "No new teacher assignments were copied."
+                if skipped_count:
+                    label = "assignment was" if skipped_count == 1 else "assignments were"
+                    message += f" {skipped_count} selected {label} already present."
+                flash(message)
+            return redirect(url_for(
+                "manage_teachers", source_year_id=source_year_id
+            ))
+
         try:
             teacher_id = int(request.form.get("teacher_id", ""))
             class_id = int(request.form.get("class_id", ""))
@@ -930,6 +980,26 @@ def manage_teachers():
     assignments = database.get_teacher_class_assignments(
         school_id, school["academic_year_id"]
     )
+    current_assignment_keys = {
+        (assignment["teacher_id"], assignment["class_id"])
+        for assignment in assignments
+    }
+    active_class_ids = {school_class["id"] for school_class in classes}
+    source_assignments = (
+        [
+            {
+                **dict(assignment),
+                "already_assigned": (
+                    assignment["teacher_id"], assignment["class_id"]
+                ) in current_assignment_keys,
+                "class_active": assignment["class_id"] in active_class_ids,
+            }
+            for assignment in database.get_teacher_class_assignments(
+                school_id, source_year_id
+            )
+        ]
+        if source_year else []
+    )
 
     return render_template(
         "admin_section.html",
@@ -938,7 +1008,12 @@ def manage_teachers():
         page_description="Review teachers and assign their classes.",
         teachers=teachers,
         classes=classes,
-        assignments=assignments
+        assignments=assignments,
+        academic_year_name=school["academic_year_name"],
+        previous_years=previous_years,
+        source_year=source_year,
+        source_year_id=source_year_id,
+        source_assignments=source_assignments,
     )
 
 

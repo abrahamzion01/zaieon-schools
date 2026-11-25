@@ -756,6 +756,21 @@ footer {
     accent-color: #18A6A0;
 }
 
+.assignment-copy-form {
+    align-items: stretch;
+}
+
+.assignment-copy-form .table-container,
+.assignment-copy-form > button {
+    flex: 1 1 100%;
+}
+
+.assignment-copy-form input[type="checkbox"] {
+    width: 16px;
+    min-height: 16px;
+    accent-color: #18A6A0;
+}
+
 .subject-score-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 90px;
