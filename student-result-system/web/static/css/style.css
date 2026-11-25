@@ -227,10 +227,17 @@ footer {
 .flash-message {
     background: #FEECEC;
     color: #B42318;
-    padding: 12px;
+    padding: 12px 16px;
     border-radius: 8px;
     margin-bottom: 15px;
     font-size: 14px;
+    border: 1px solid #FECDCA;
+}
+
+.flash-message.flash-success {
+    background: #ECFDF3;
+    color: #027A48;
+    border-color: #ABEFC6;
 }
 
 .back-link {
@@ -295,9 +302,10 @@ footer {
     left: 0;
     width: 260px;
     height: 100vh;
+    overflow-y: auto;
     background: #10233F;
     color: #FFFFFF;
-    padding: 28px 18px;
+    padding: 24px 16px;
     display: flex;
     flex-direction: column;
     z-index: 100;
@@ -307,7 +315,7 @@ footer {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 0 8px 35px;
+    padding: 0 8px 22px;
 }
 
 .sidebar-brand img {
@@ -333,20 +341,20 @@ footer {
     font-weight: 700;
     letter-spacing: 1.5px;
     padding: 0 12px;
-    margin-bottom: 14px;
+    margin-bottom: 10px;
 }
 
 .sidebar-nav {
     display: flex;
     flex-direction: column;
-    gap: 7px;
+    gap: 4px;
 }
 
 .nav-link {
     display: flex;
     align-items: center;
-    gap: 13px;
-    padding: 13px 14px;
+    gap: 12px;
+    padding: 10px 14px;
     color: #B9C5D5;
     text-decoration: none;
     border-radius: 9px;
@@ -396,9 +404,11 @@ footer {
 /* MAIN CONTENT */
 
 .dashboard-content {
+    display: block;
     margin-left: 260px;
     padding: 32px 38px;
     min-height: 100vh;
+    background: #F3F5F8;
 }
 
 /* TOPBAR */
@@ -664,6 +674,10 @@ footer {
     color: #10233F;
     font-size: 18px;
     margin-bottom: 6px;
+}
+
+.management-panel h2:not(:first-child) {
+    margin-top: 24px;
 }
 
 .management-panel > p {

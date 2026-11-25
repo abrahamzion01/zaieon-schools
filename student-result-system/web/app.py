@@ -279,7 +279,7 @@ def change_password():
             return redirect(url_for("change_password"))
 
         session["must_change_password"] = False
-        flash("Your password has been updated.")
+        flash("Your password has been updated.", "success")
         return redirect(url_for("dashboard"))
 
     return render_template("change_password.html", forced=forced)
@@ -410,7 +410,7 @@ def school_setup():
         except (ValueError, sqlite3.IntegrityError) as error:
             flash(str(error))
         else:
-            flash("School setup is complete. You can now register students and assign teachers.")
+            flash("School setup is complete. You can now register students and assign teachers.", "success")
             return redirect(url_for("dashboard"))
 
     return render_template(
@@ -499,7 +499,7 @@ def manage_results():
             return redirect(url_for(
                 "manage_results", selected=registration, term_id=selected_term
             ))
-        flash(f"Results saved for {student['name']}.")
+        flash(f"Results saved for {student['name']}.", "success")
         return redirect(url_for(
             "manage_results", selected=registration, term_id=selected_term
         ))
@@ -595,7 +595,7 @@ def manage_subjects():
                 database.save_school_class_subjects(
                     school_id, selected_class_id, selected_subjects
                 )
-                flash(f"Subject offerings saved for {selected_class['name']}.")
+                flash(f"Subject offerings saved for {selected_class['name']}.", "success")
                 return redirect(url_for(
                     "manage_subjects", class_id=selected_class_id
                 ))
@@ -687,7 +687,7 @@ def teacher_results():
         except (ValueError, sqlite3.IntegrityError) as error:
             flash(str(error) or "Unable to save these results.")
         else:
-            flash(f"Results saved for {student['name']}.")
+            flash(f"Results saved for {student['name']}.", "success")
         return redirect(url_for(
             "teacher_results", class_id=class_id, term_id=term_id,
             selected=registration
@@ -792,7 +792,7 @@ def manage_terms():
                 message = "That term name or sequence is already in use."
             flash(message)
         else:
-            flash("Academic term added.")
+            flash("Academic term added.", "success")
             return redirect(url_for(
                 "manage_terms", academic_year_id=academic_year_id
             ))
@@ -821,7 +821,7 @@ def manage_academic_years():
             except (TypeError, ValueError) as error:
                 flash(str(error) or "Choose an academic year belonging to this school.")
             else:
-                flash("Current academic year updated.")
+                flash("Current academic year updated.", "success")
             return redirect(url_for("manage_academic_years"))
 
         try:
@@ -838,7 +838,7 @@ def manage_academic_years():
                 message = "That academic year name is already in use."
             flash(message)
         else:
-            flash("Academic year added.")
+            flash("Academic year added.", "success")
             return redirect(url_for("manage_terms", academic_year_id=year_id))
 
     school = database.get_school_context(school_id)
@@ -907,7 +907,8 @@ def promote_students():
             student_label = "student" if enrolled_count == 1 else "students"
             flash(
                 f"{enrolled_count} {student_label} enrolled in "
-                f"{current_year['academic_year_name']}."
+                f"{current_year['academic_year_name']}.",
+                "success",
             )
         return redirect(url_for(
             "promote_students", source_year_id=source_year_id
@@ -983,7 +984,8 @@ def import_legacy_students():
             flash(
                 f"Import complete: {counts['created']} profiles created, "
                 f"{counts['enrolled']} students enrolled, "
-                f"{counts['skipped']} already enrolled and skipped."
+                f"{counts['skipped']} already enrolled and skipped.",
+                "success",
             )
             return redirect(url_for("import_legacy_students"))
 
@@ -1056,7 +1058,7 @@ def manage_teachers():
                 if skipped_count:
                     label = "assignment was" if skipped_count == 1 else "assignments were"
                     message += f" {skipped_count} selected {label} already present."
-                flash(message)
+                flash(message, "success")
             return redirect(url_for(
                 "manage_teachers", source_year_id=source_year_id
             ))
@@ -1088,7 +1090,7 @@ def manage_teachers():
             except ValueError as error:
                 flash(str(error))
             else:
-                flash(f"{school_class['name']} assigned to {teacher['username']}.")
+                flash(f"{school_class['name']} assigned to {teacher['username']}.", "success")
 
         return redirect(url_for("manage_teachers"))
 
@@ -1222,7 +1224,7 @@ def attendance_overview():
                     message = f"Cleared {counts['cleared']} attendance marks."
                 else:
                     message = "No attendance marks changed."
-                flash(message)
+                flash(message, "success")
                 return redirect(url_for(
                     "attendance_overview", class_id=selected_class_id,
                     date=selected_date.isoformat()
@@ -1440,7 +1442,7 @@ def register_student():
 @app.route("/logout")
 def logout():
     session.clear()
-    flash("You have been logged out.")
+    flash("You have been logged out.", "success")
     return redirect(url_for("login"))
 
 

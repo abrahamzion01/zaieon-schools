@@ -23,16 +23,16 @@
                 Create a student record and login account.
             </p>
 
-            {% with messages = get_flashed_messages() %}
+            {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
-                    {% for message in messages %}
-                        <div class="flash-message">{{ message }}</div>
+                    {% for category, message in messages %}
+                        <div class="flash-message {{ 'flash-success' if category == 'success' else '' }}">{{ message }}</div>
                     {% endfor %}
                 {% endif %}
             {% endwith %}
 
             {% if temporary_password %}
-                <div class="flash-message">
+                <div class="flash-message flash-success">
                     <strong>Student registered successfully!</strong>
                     <p>Name: {{ student_name }}</p>
                     <p>Username: {{ username }}</p>
