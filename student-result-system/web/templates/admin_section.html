@@ -22,6 +22,7 @@
             <a href="{{ url_for('register_student') }}" class="nav-link"><span>♙</span> Students</a>
             <a href="{{ url_for('import_legacy_students') }}" class="nav-link {{ 'active' if page == 'legacy_import' else '' }}"><span>⇧</span> Import Students</a>
             <a href="{{ url_for('manage_results') }}" class="nav-link {{ 'active' if page == 'results' else '' }}"><span>▤</span> Academic Results</a>
+            <a href="{{ url_for('manage_subjects') }}" class="nav-link {{ 'active' if page == 'subjects' else '' }}"><span>▧</span> Subjects</a>
             <a href="{{ url_for('manage_terms') }}" class="nav-link {{ 'active' if page == 'terms' else '' }}"><span>▦</span> Academic Terms</a>
             <a href="{{ url_for('attendance_overview') }}" class="nav-link {{ 'active' if page == 'attendance' else '' }}"><span>◷</span> Attendance</a>
             <a href="{{ url_for('manage_teachers') }}" class="nav-link {{ 'active' if page == 'teachers' else '' }}"><span>♧</span> Teachers</a>
@@ -143,6 +144,52 @@
                         </tbody>
                     </table>
                 </div>
+            </section>
+
+        {% elif page == 'subjects' %}
+            <section class="management-panel">
+                <h2>Choose subjects for each class</h2>
+                <p>Each class can have its own subject list. These choices limit the subjects available when administrators and teachers enter scores. Existing scores stay in the record if a subject is later removed from the offered list.</p>
+                {% if classes %}
+                    <form class="management-form" method="get" action="{{ url_for('manage_subjects') }}">
+                        <div class="form-field">
+                            <label for="subject-class">Class</label>
+                            <select id="subject-class" name="class_id" required>
+                                {% for school_class in classes %}
+                                    <option value="{{ school_class.id }}" {{ 'selected' if selected_class_id == school_class.id else '' }}>{{ school_class.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button class="management-submit" type="submit">Choose Class</button>
+                    </form>
+                    {% if selected_class %}
+                        <h2>Subjects offered in {{ selected_class.name }}</h2>
+                        {% if subject_settings_saved %}
+                            <p>This class has a saved subject list. Change the checkboxes and save to update it.</p>
+                        {% else %}
+                            <p>The full subject list for this level is currently available. Check the subjects this school offers in this class, then save.</p>
+                        {% endif %}
+                        <form class="management-form subject-offerings-form" method="post" action="{{ url_for('manage_subjects') }}">
+                            <input type="hidden" name="class_id" value="{{ selected_class.id }}">
+                            {% for group in subject_groups %}
+                                <div class="subject-group">
+                                    <h3>{{ group.name }}</h3>
+                                    <div class="subject-offering-list">
+                                        {% for subject in group.subjects %}
+                                            <label class="subject-offering-choice">
+                                                <input type="checkbox" name="subject" value="{{ subject }}" {{ 'checked' if subject in selected_subjects else '' }}>
+                                                <span>{{ subject }}</span>
+                                            </label>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endfor %}
+                            <button class="management-submit" type="submit">Save Subject Offerings</button>
+                        </form>
+                    {% endif %}
+                {% else %}
+                    <p class="management-empty">Set up at least one class before choosing its subject offerings.</p>
+                {% endif %}
             </section>
 
         {% elif page == 'terms' %}

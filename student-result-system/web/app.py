@@ -51,6 +51,45 @@ def _scores_for_selected_subjects(allowed_subjects):
     return scores
 
 
+def _subject_groups_for_school_class(school_id, class_id, class_name,
+                                     previously_recorded=()):
+    groups, defaults = curriculum.subject_groups_for_class(
+        class_name, main.SUBJECTS
+    )
+    catalog = curriculum.flatten_subject_groups(groups)
+    if class_id is None:
+        return groups, defaults, set(catalog)
+    configured = database.get_school_class_subjects(school_id, class_id)
+    offered = set(catalog if configured is None else configured)
+    filtered_groups = []
+    for group in groups:
+        subjects = [subject for subject in group["subjects"] if subject in offered]
+        if subjects:
+            filtered_groups.append({"name": group["name"], "subjects": subjects})
+    historical = list(dict.fromkeys(
+        subject for subject in previously_recorded if subject not in offered
+    ))
+    if historical:
+        filtered_groups.append({
+            "name": "Previously recorded subjects (no longer offered)",
+            "subjects": historical,
+        })
+    allowed = offered | set(historical)
+    return filtered_groups, [subject for subject in defaults if subject in offered], allowed
+
+
+def _saved_subjects_for_student(school_id, academic_year_id, term_id,
+                                class_id, registration):
+    if not term_id:
+        return []
+    results = database.get_results_for_term(
+        school_id, academic_year_id, term_id, class_id=class_id
+    )
+    student = next((row for row in results
+                    if row["reg_no"].casefold() == registration.casefold()), None)
+    return list(student["subjects"]) if student else []
+
+
 def admin_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -283,21 +322,24 @@ def manage_results():
             flash("Set up an academic term before entering results.")
             return redirect(url_for("manage_terms"))
 
-        student_class = next(
-            (student["class_name"] for student in students
+        enrolled_student = next(
+            (student for student in students
              if student["reg_no"].casefold() == registration.casefold()),
             None,
         )
-        if student_class is None:
+        if enrolled_student is None:
             flash("Choose a student enrolled in the current academic year.")
             return redirect(url_for("manage_results", term_id=selected_term))
-        subject_groups, _ = curriculum.subject_groups_for_class(
-            student_class, main.SUBJECTS
+        previous_subjects = _saved_subjects_for_student(
+            school_id, school["academic_year_id"], selected_term,
+            enrolled_student["class_id"], registration,
+        )
+        _, _, allowed_subjects = _subject_groups_for_school_class(
+            school_id, enrolled_student["class_id"],
+            enrolled_student["class_name"], previous_subjects,
         )
         try:
-            scores = _scores_for_selected_subjects(
-                curriculum.flatten_subject_groups(subject_groups)
-            )
+            scores = _scores_for_selected_subjects(allowed_subjects)
         except ValueError as error:
             flash(str(error))
             return redirect(url_for(
@@ -335,15 +377,20 @@ def manage_results():
          if student["reg_no"].lower() == selected_reg.lower()),
         None
     )
-    selected_class = next(
-        (student["class_name"] for student in students
+    selected_enrollment = next(
+        (student for student in students
          if student["reg_no"].casefold() == selected_reg.casefold()),
-        "",
+        None,
     )
-    subject_groups, default_subjects = curriculum.subject_groups_for_class(
-        selected_class, main.SUBJECTS
+    subject_groups, default_subjects, _ = _subject_groups_for_school_class(
+        school_id,
+        selected_enrollment["class_id"] if selected_enrollment else None,
+        selected_enrollment["class_name"] if selected_enrollment else "",
+        selected_student["subjects"].keys() if selected_student else (),
     )
-    subject_guidance = curriculum.subject_guidance_for_class(selected_class)
+    subject_guidance = curriculum.subject_guidance_for_class(
+        selected_enrollment["class_name"] if selected_enrollment else ""
+    )
     for student in results:
         if student["average"] is not None:
             student["grade"] = main.calculate_grade(student["average"])
@@ -363,6 +410,83 @@ def manage_results():
         subject_guidance=subject_guidance,
         selected_reg=selected_reg,
         selected_student=selected_student
+    )
+
+
+@app.route("/subjects", methods=["GET", "POST"])
+@admin_required
+def manage_subjects():
+    school_id = session["school_id"]
+    classes = database.get_school_classes(school_id)
+    selected_class_id = request.args.get("class_id", "")
+    if request.method == "POST":
+        selected_class_id = request.form.get("class_id", "")
+    try:
+        selected_class_id = int(selected_class_id)
+    except (TypeError, ValueError):
+        selected_class_id = (
+            None if request.method == "POST"
+            else classes[0]["id"] if classes else None
+        )
+    selected_class = next(
+        (school_class for school_class in classes
+         if school_class["id"] == selected_class_id),
+        None,
+    )
+
+    if request.method == "POST":
+        if selected_class is None:
+            flash("Choose an active class in this school.")
+        else:
+            groups, _ = curriculum.subject_groups_for_class(
+                selected_class["name"], main.SUBJECTS
+            )
+            allowed = set(curriculum.flatten_subject_groups(groups))
+            selected_subjects = list(dict.fromkeys(
+                request.form.getlist("subject")
+            ))
+            if not selected_subjects:
+                flash("Choose at least one subject for this class.")
+            elif not set(selected_subjects) <= allowed:
+                flash("Choose subjects from the list for this class level.")
+            else:
+                database.save_school_class_subjects(
+                    school_id, selected_class_id, selected_subjects
+                )
+                flash(f"Subject offerings saved for {selected_class['name']}.")
+                return redirect(url_for(
+                    "manage_subjects", class_id=selected_class_id
+                ))
+
+    subject_groups = []
+    configured = False
+    if selected_class:
+        subject_groups, _ = curriculum.subject_groups_for_class(
+            selected_class["name"], main.SUBJECTS
+        )
+        saved_subjects = database.get_school_class_subjects(
+            school_id, selected_class_id
+        )
+        configured = saved_subjects is not None
+        selected_subjects = set(
+            saved_subjects if configured
+            else curriculum.flatten_subject_groups(subject_groups)
+        )
+    else:
+        selected_subjects = set()
+
+    school = database.get_school_context(school_id)
+    return render_template(
+        "admin_section.html",
+        page="subjects",
+        page_title="Subject Offerings",
+        page_description=f"Choose the subjects offered in each class at {school['school_name']}.",
+        classes=classes,
+        selected_class=selected_class,
+        selected_class_id=selected_class_id,
+        subject_groups=subject_groups,
+        selected_subjects=selected_subjects,
+        subject_settings_saved=configured,
     )
 
 
@@ -397,13 +521,14 @@ def teacher_results():
             assignment for assignment in assignments
             if assignment["class_id"] == class_id
         )
-        subject_groups, _ = curriculum.subject_groups_for_class(
-            assignment["class_name"], main.SUBJECTS
+        previous_subjects = _saved_subjects_for_student(
+            school_id, academic_year_id, term_id, class_id, registration
+        )
+        _, _, allowed_subjects = _subject_groups_for_school_class(
+            school_id, class_id, assignment["class_name"], previous_subjects
         )
         try:
-            scores = _scores_for_selected_subjects(
-                curriculum.flatten_subject_groups(subject_groups)
-            )
+            scores = _scores_for_selected_subjects(allowed_subjects)
         except ValueError as error:
             flash(str(error))
             return redirect(url_for(
@@ -437,13 +562,6 @@ def teacher_results():
          if assignment["class_id"] == selected_class_id),
         None,
     )
-    subject_groups, default_subjects = curriculum.subject_groups_for_class(
-        selected_assignment["class_name"] if selected_assignment else "",
-        main.SUBJECTS,
-    )
-    subject_guidance = curriculum.subject_guidance_for_class(
-        selected_assignment["class_name"] if selected_assignment else ""
-    )
     try:
         selected_term_id = int(request.args.get("term_id", ""))
     except ValueError:
@@ -462,7 +580,16 @@ def teacher_results():
     selected_student = next(
         (student for student in results
          if student["reg_no"].lower() == selected_reg.lower()),
-        None
+        None,
+    )
+    subject_groups, default_subjects, _ = _subject_groups_for_school_class(
+        school_id,
+        selected_class_id,
+        selected_assignment["class_name"] if selected_assignment else "",
+        selected_student["subjects"].keys() if selected_student else (),
+    )
+    subject_guidance = curriculum.subject_guidance_for_class(
+        selected_assignment["class_name"] if selected_assignment else ""
     )
     for student in results:
         if student["average"] is not None:

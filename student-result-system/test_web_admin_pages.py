@@ -388,6 +388,133 @@ def test_secondary_score_form_uses_curriculum_subject_options(admin_client):
     assert b"NERDC SSS offers 8" in senior_page.data
 
 
+def test_admin_configures_offered_subjects_per_school_class(admin_client):
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+    school = database.get_school_context(school_id)
+    jss_one = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "JSS 1"
+    )
+
+    setup_page = admin_client.get(f"/subjects?class_id={jss_one['id']}")
+    assert setup_page.status_code == 200
+    assert b"Subjects offered in JSS 1" in setup_page.data
+    assert b"name=\"subject\" value=\"Hausa\" checked" in setup_page.data
+
+    saved_page = admin_client.post("/subjects", data={
+        "class_id": str(jss_one["id"]),
+        "subject": ["English Studies", "Yoruba", "Biology"],
+    }, follow_redirects=True)
+    assert saved_page.status_code == 200
+    assert b"Subject offerings saved for JSS 1." in saved_page.data
+    assert set(database.get_school_class_subjects(
+        school_id, jss_one["id"]
+    )) == {"English Studies", "Yoruba", "Biology"}
+
+    student_id = database.create_student(
+        school_id, "REG-CUSTOM-JSS", "Configured Subject Student"
+    )
+    database.enroll_student(
+        student_id, jss_one["id"], school["academic_year_id"], "2026-09-03"
+    )
+    term_id = database.create_term(
+        school["academic_year_id"], "First Term", 1,
+        "2026-09-01", "2026-12-18"
+    )
+
+    score_page = admin_client.get(
+        f"/results?selected=REG-CUSTOM-JSS&term_id={term_id}"
+    )
+    assert b"English Studies" in score_page.data
+    assert b"Yoruba" in score_page.data
+    assert b"Hausa" not in score_page.data
+
+    rejected = admin_client.post("/results", data={
+        "reg_no": "REG-CUSTOM-JSS",
+        "term_id": str(term_id),
+        "subject": ["Hausa"],
+        "score_Hausa": "77",
+    }, follow_redirects=True)
+    assert b"Choose subjects from the list for this class level." in rejected.data
+
+    accepted = admin_client.post("/results", data={
+        "reg_no": "REG-CUSTOM-JSS",
+        "term_id": str(term_id),
+        "subject": ["English Studies"],
+        "score_English Studies": "88",
+    }, follow_redirects=True)
+    assert b"Results saved for Configured Subject Student." in accepted.data
+    assert database.get_results_for_term(
+        school_id, school["academic_year_id"], term_id
+    )[0]["subjects"] == {"English Studies": 88}
+
+    database.save_school_class_subjects(
+        school_id, jss_one["id"], ["Yoruba"]
+    )
+    historical_page = admin_client.get(
+        f"/results?selected=REG-CUSTOM-JSS&term_id={term_id}"
+    )
+    assert b"Previously recorded subjects (no longer offered)" in historical_page.data
+    assert b"English Studies" in historical_page.data
+    historical_score = admin_client.post("/results", data={
+        "reg_no": "REG-CUSTOM-JSS",
+        "term_id": str(term_id),
+        "subject": ["English Studies"],
+        "score_English Studies": "89",
+    }, follow_redirects=True)
+    assert b"Results saved for Configured Subject Student." in historical_score.data
+    assert database.get_results_for_term(
+        school_id, school["academic_year_id"], term_id
+    )[0]["subjects"] == {"English Studies": 89}
+
+    primary_one = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "Primary 1"
+    )
+    assert database.get_school_class_subjects(
+        school_id, primary_one["id"]
+    ) is None
+
+
+def test_teacher_score_entry_obeys_class_subject_offerings(teacher_client):
+    client, school, teacher_id, primary_one_id = teacher_client
+    database.save_school_class_subjects(
+        school["school_id"], primary_one_id, ["Mathematics"]
+    )
+    student_id = database.create_student(
+        school["school_id"], "REG-TEACHER-SUBJECT", "Teacher Subject Student"
+    )
+    database.enroll_student(
+        student_id, primary_one_id, school["academic_year_id"], "2026-09-03"
+    )
+    term_id = database.create_term(
+        school["academic_year_id"], "First Term", 1,
+        "2026-09-01", "2026-12-18"
+    )
+
+    page = client.get(
+        f"/teacher/results?class_id={primary_one_id}&term_id={term_id}"
+        "&selected=REG-TEACHER-SUBJECT"
+    )
+    assert page.status_code == 200
+    assert b"Mathematics" in page.data
+    assert b"value=\"English\"" not in page.data
+
+    rejected = client.post("/teacher/results", data={
+        "class_id": str(primary_one_id),
+        "term_id": str(term_id),
+        "reg_no": "REG-TEACHER-SUBJECT",
+        "subject": ["English"],
+        "score_English": "80",
+    }, follow_redirects=True)
+    assert b"Choose subjects from the list for this class level." in rejected.data
+    assert database.get_results_for_term(
+        school["school_id"], school["academic_year_id"], term_id,
+        teacher_id=teacher_id, class_id=primary_one_id
+    )[0]["subjects"] == {}
+
+
 def test_registration_creates_school_profile_and_year_enrollment(admin_client, tmp_path):
     with admin_client.session_transaction() as session:
         school_id = session["school_id"]
