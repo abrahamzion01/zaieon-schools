@@ -497,6 +497,85 @@ def enroll_student(student_id, class_id, academic_year_id, enrollment_date):
         return cursor.lastrowid
 
 
+def promote_students_to_year(school_id, source_year_id, target_year_id,
+                             promotions, enrollment_date):
+    """Enroll selected prior-year students in their new-year classes atomically."""
+    enrolled_on = _validated_date(enrollment_date, "Enrollment date")
+    promotions = list(promotions)
+    if not promotions:
+        raise ValueError("Select at least one student to enroll in the current year.")
+
+    student_ids = []
+    normalized = []
+    for promotion in promotions:
+        try:
+            student_id = int(promotion["student_id"])
+            class_id = int(promotion["class_id"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("Choose a destination class for every selected student.") from error
+        student_ids.append(student_id)
+        normalized.append((student_id, class_id))
+    if len(student_ids) != len(set(student_ids)):
+        raise ValueError("A student can only be selected once per promotion batch.")
+
+    with _connection_scope() as connection:
+        source_year = connection.execute("""
+            SELECT id, end_date FROM academic_years
+            WHERE school_id = ? AND id = ? AND is_current = 0
+        """, (school_id, source_year_id)).fetchone()
+        target_year = connection.execute("""
+            SELECT id, start_date, end_date FROM academic_years
+            WHERE school_id = ? AND id = ? AND is_current = 1
+        """, (school_id, target_year_id)).fetchone()
+        if source_year is None:
+            raise ValueError("Choose a previous academic year in this school.")
+        if target_year is None:
+            raise ValueError("Promotions must target this school's current academic year.")
+        if source_year["end_date"] >= target_year["start_date"]:
+            raise ValueError("Choose an academic year that ended before the current year began.")
+        if not (date.fromisoformat(target_year["start_date"]) <= enrolled_on
+                <= date.fromisoformat(target_year["end_date"])):
+            raise ValueError("Enrollment date must fall within the current academic year.")
+
+        for student_id, class_id in normalized:
+            source_enrollment = connection.execute("""
+                SELECT 1 FROM enrollments
+                JOIN students ON students.id = enrollments.student_id
+                             AND students.school_id = enrollments.school_id
+                WHERE enrollments.school_id = ?
+                  AND enrollments.academic_year_id = ?
+                  AND enrollments.student_id = ?
+                  AND enrollments.status = 'active'
+                  AND students.is_active = 1
+            """, (school_id, source_year_id, student_id)).fetchone()
+            if source_enrollment is None:
+                raise ValueError("A selected student is not active in the chosen previous year.")
+
+            target_enrollment = connection.execute("""
+                SELECT 1 FROM enrollments
+                WHERE school_id = ? AND academic_year_id = ? AND student_id = ?
+            """, (school_id, target_year_id, student_id)).fetchone()
+            if target_enrollment:
+                raise ValueError("A selected student is already enrolled in the current year.")
+
+            destination = connection.execute("""
+                SELECT 1 FROM school_classes
+                WHERE school_id = ? AND id = ? AND is_active = 1
+            """, (school_id, class_id)).fetchone()
+            if destination is None:
+                raise ValueError("Choose an active destination class in this school.")
+
+            connection.execute("""
+                INSERT INTO enrollments (
+                    school_id, student_id, class_id, academic_year_id,
+                    enrollment_date, status
+                ) VALUES (?, ?, ?, ?, ?, 'active')
+            """, (school_id, student_id, class_id, target_year_id,
+                  enrolled_on.isoformat()))
+
+    return len(normalized)
+
+
 def setup_initial_school(admin_id, name, code, year_name, start_date, end_date,
                          class_names):
     """Create the first school, current year, classes, and admin membership."""
