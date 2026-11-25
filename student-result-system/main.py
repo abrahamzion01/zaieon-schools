@@ -1,11 +1,12 @@
 
 import json
 import os
+from pathlib import Path
 
 students = []
 
 SUBJECTS = ["Mathematics", "English", "Biology"]
-DATABASE_FILE = "students.json"
+DATABASE_FILE = str(Path(__file__).resolve().parent / "students.json")
 
 
 # Load student records from JSON

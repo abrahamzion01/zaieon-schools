@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Dashboard | ZAIEON Schools</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-body">
+    <aside class="sidebar">
+        <a class="sidebar-brand" href="{{ url_for('dashboard') }}">
+            <img src="{{ url_for('static', filename='images/zaieon-schools-logo.png') }}" alt="ZAIEON Schools">
+            <div><h2>ZAIEON</h2><span>SCHOOLS</span></div>
+        </a>
+
+        <p class="nav-label">STUDENT MENU</p>
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('dashboard') }}" class="nav-link active"><span>▦</span> Dashboard</a>
+            <a href="#results" class="nav-link"><span>▤</span> My Results</a>
+            <a href="#attendance" class="nav-link"><span>◷</span> Attendance</a>
+            <a href="{{ url_for('change_password') }}" class="nav-link"><span>⚙</span> Change Password</a>
+        </nav>
+
+        <div class="sidebar-bottom">
+            <a href="{{ url_for('logout') }}" class="logout-link">⇥ Sign Out</a>
+            <p>Powered by ZAIEON Technologies</p>
+        </div>
+    </aside>
+
+    <main class="dashboard-content">
+        <header class="dashboard-topbar">
+            <div>
+                <h1>Student Dashboard</h1>
+                <p>
+                    {% if profile %}
+                        {{ profile.school_name }}{% if current_enrollment %} · {{ current_enrollment.academic_year_name }}{% endif %}
+                    {% else %}
+                        Personal academic overview
+                    {% endif %}
+                </p>
+            </div>
+            <div class="admin-profile">
+                <div class="profile-avatar">{{ (profile.name if profile else session.get('username', 'S'))[:1]|upper }}</div>
+                <div>
+                    <strong>{{ profile.name if profile else (legacy_student.name if legacy_student else session.get('username', 'Student')) }}</strong>
+                    <span>{{ reg_no or 'Student' }}</span>
+                </div>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="flash-message">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <section class="dashboard-welcome">
+            <div>
+                <span class="welcome-label">STUDENT PORTAL</span>
+                <h2>Welcome back, {{ profile.name if profile else (legacy_student.name if legacy_student else session.get('username', 'Student')) }}!</h2>
+                <p>
+                    Registration Number: <strong>{{ reg_no or 'Not linked' }}</strong>
+                    {% if current_enrollment %}
+                        · Class: <strong>{{ current_enrollment.class_name }}</strong>
+                    {% elif legacy_student and legacy_student.get('class_name') %}
+                        · Class: <strong>{{ legacy_student.get('class_name') }}</strong>
+                    {% endif %}
+                </p>
+            </div>
+            <div class="welcome-icon" aria-hidden="true">✦</div>
+        </section>
+
+        <section class="dashboard-section">
+            <div class="section-heading">
+                <div>
+                    <h2>Academic &amp; Attendance Summary</h2>
+                    <p>Your current standing across results and attendance.</p>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <article class="stat-card">
+                    <div class="stat-icon students-icon">♙</div>
+                    <p>Current Class</p>
+                    <h3>{{ current_enrollment.class_name if current_enrollment else (legacy_student.get('class_name') if legacy_student and legacy_student.get('class_name') else '—') }}</h3>
+                    <span>{{ current_enrollment.academic_year_name if current_enrollment else 'Enrolled class' }}</span>
+                </article>
+
+                <article class="stat-card">
+                    <div class="stat-icon results-icon">▤</div>
+                    <p>Terms Recorded</p>
+                    <h3>{{ term_results|length if term_results else (1 if legacy_student and legacy_student.get('average') is not none else 0) }}</h3>
+                    <span>Academic term reports</span>
+                </article>
+
+                <article class="stat-card">
+                    <div class="stat-icon highest-icon">↗</div>
+                    <p>Latest Average</p>
+                    <h3>
+                        {% if term_results %}
+                            {{ '%.2f%%'|format(term_results[0].average) }}
+                        {% elif legacy_student and legacy_student.get('average') is not none %}
+                            {{ '%.2f%%'|format(legacy_student.average) }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </h3>
+                    <span>
+                        {% if term_results %}
+                            Grade {{ term_results[0].grade }} ({{ term_results[0].term_name }})
+                        {% elif legacy_student and legacy_student.get('grade') %}
+                            Grade {{ legacy_student.grade }}
+                        {% else %}
+                            No scores yet
+                        {% endif %}
+                    </span>
+                </article>
+
+                <article class="stat-card">
+                    <div class="stat-icon lowest-icon">◷</div>
+                    <p>Attendance Rate</p>
+                    <h3>
+                        {% if attendance_summary and attendance_summary.attendance_rate is not none %}
+                            {{ '%.1f%%'|format(attendance_summary.attendance_rate) }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </h3>
+                    <span>
+                        {% if attendance_summary and attendance_summary.marked_days %}
+                            {{ attendance_summary.present }} present of {{ attendance_summary.marked_days }} marked days
+                        {% else %}
+                            No attendance marked yet
+                        {% endif %}
+                    </span>
+                </article>
+            </div>
+        </section>
+
+        <section id="results" class="management-panel">
+            <h2>Academic Results</h2>
+            {% if term_results %}
+                <p>Detailed subject scores grouped by academic year and term.</p>
+                {% for term in term_results %}
+                    <div class="student-term-card">
+                        <div class="student-term-header">
+                            <div>
+                                <h3>{{ term.academic_year_name }} · {{ term.term_name }}</h3>
+                                <span>Class: {{ term.class_name }}</span>
+                            </div>
+                            <div class="student-term-metrics">
+                                <span>Total: <strong>{{ '%g'|format(term.total) }}</strong></span>
+                                <span>Average: <strong>{{ '%.2f%%'|format(term.average) }}</strong></span>
+                                <span class="grade-badge">Grade {{ term.grade }}</span>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Subject</th>
+                                        <th>Score</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for subject in term.subjects %}
+                                        <tr>
+                                            <td>{{ subject.name }}</td>
+                                            <td>{{ '%g'|format(subject.score) }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% elif legacy_student and legacy_student.get('average') is not none %}
+                <p>Recorded academic summary.</p>
+                <div class="student-term-card">
+                    <div class="student-term-header">
+                        <div>
+                            <h3>Overall Result</h3>
+                            <span>Registration Number: {{ legacy_student.reg_no }}</span>
+                        </div>
+                        <div class="student-term-metrics">
+                            <span>Total: <strong>{{ '%g'|format(legacy_student.total) }}</strong></span>
+                            <span>Average: <strong>{{ '%.2f%%'|format(legacy_student.average) }}</strong></span>
+                            <span class="grade-badge">Grade {{ legacy_student.grade }}</span>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Subject</th>
+                                    <th>Score</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for subject, score in legacy_student.subjects.items() %}
+                                    <tr>
+                                        <td>{{ subject }}</td>
+                                        <td>{{ '%g'|format(score) }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            {% else %}
+                <p class="management-empty">No academic results have been recorded for your account yet.</p>
+            {% endif %}
+        </section>
+
+        <section id="attendance" class="management-panel">
+            <h2>Attendance Record</h2>
+            {% if attendance_summary and attendance_summary.marked_days %}
+                <div class="attendance-summary">
+                    <div class="attendance-summary-card"><strong>{{ attendance_summary.marked_days }}</strong><span>Marked days</span></div>
+                    <div class="attendance-summary-card"><strong>{{ attendance_summary.present }}</strong><span>Present</span></div>
+                    <div class="attendance-summary-card"><strong>{{ attendance_summary.absent }}</strong><span>Absent</span></div>
+                    <div class="attendance-summary-card"><strong>{{ attendance_summary.late }}</strong><span>Late</span></div>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in recent_attendance %}
+                                <tr>
+                                    <td>{{ row.attendance_date }}</td>
+                                    <td>{{ row.status }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="management-empty">No attendance records have been marked for your current enrollment yet.</p>
+            {% endif %}
+        </section>
+
+        <footer class="dashboard-footer">
+            <p>© 2026 ZAIEON Schools. All rights reserved.</p>
+            <p>Empowering Schools. Developing Futures.</p>
+        </footer>
+    </main>
+</body>
+</html>

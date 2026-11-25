@@ -189,9 +189,39 @@ footer {
     box-shadow: 0 0 0 3px rgba(24, 166, 160, 0.12);
 }
 
-.login-card button {
+.login-card button[type="submit"] {
     width: 100%;
     margin-top: 28px;
+}
+
+.password-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.password-wrapper input {
+    padding-right: 46px;
+}
+
+.toggle-password {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: auto;
+    margin: 0;
+    padding: 6px 8px;
+    background: transparent;
+    color: var(--navy);
+    font-size: 16px;
+    line-height: 1;
+}
+
+.toggle-password:hover {
+    background: #F3F5F8;
+    color: var(--navy);
+    transform: translateY(-50%);
 }
 
 .flash-message {
@@ -1015,6 +1045,51 @@ footer {
     text-align: center;
     color: #98A2B3 !important;
     padding: 35px !important;
+}
+
+.student-term-card {
+    margin-top: 18px;
+    padding: 18px;
+    border: 1px solid #E8EDF3;
+    border-radius: 12px;
+    background: #FAFCFF;
+}
+
+.student-term-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.student-term-header h3 {
+    color: #10233F;
+    font-size: 16px;
+    margin-bottom: 2px;
+}
+
+.student-term-header > div > span {
+    color: #718096;
+    font-size: 13px;
+}
+
+.student-term-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    font-size: 13px;
+    color: #344054;
+}
+
+.grade-badge {
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #E5F7F4;
+    color: #148B86;
+    font-weight: 700;
 }
 
 /* FOOTER */
