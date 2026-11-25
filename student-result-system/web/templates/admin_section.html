@@ -25,6 +25,7 @@
             <a href="{{ url_for('manage_subjects') }}" class="nav-link {{ 'active' if page == 'subjects' else '' }}"><span>▧</span> Subjects</a>
             <a href="{{ url_for('manage_academic_years') }}" class="nav-link {{ 'active' if page == 'academic_years' else '' }}"><span>▦</span> Academic Years</a>
             <a href="{{ url_for('manage_terms') }}" class="nav-link {{ 'active' if page == 'terms' else '' }}"><span>▦</span> Academic Terms</a>
+            <a href="{{ url_for('promote_students') }}" class="nav-link {{ 'active' if page == 'promote_students' else '' }}"><span>⇧</span> Promote Students</a>
             <a href="{{ url_for('attendance_overview') }}" class="nav-link {{ 'active' if page == 'attendance' else '' }}"><span>◷</span> Attendance</a>
             <a href="{{ url_for('manage_teachers') }}" class="nav-link {{ 'active' if page == 'teachers' else '' }}"><span>♧</span> Teachers</a>
         </nav>
@@ -192,6 +193,75 @@
                     <p class="management-empty">Set up at least one class before choosing its subject offerings.</p>
                 {% endif %}
             </section>
+
+        {% elif page == 'promote_students' %}
+            <section class="management-panel">
+                <h2>Enroll students in {{ current_year.academic_year_name }}</h2>
+                <p>Select a previous academic year, then choose which students to enroll. The next class is suggested when it matches your school's class list. Past-year enrollments and results remain unchanged. Students already enrolled in the current year are marked in the list.</p>
+                {% if academic_years %}
+                    <form class="management-form" method="get" action="{{ url_for('promote_students') }}">
+                        <div class="form-field">
+                            <label for="promotion-source-year">Previous academic year</label>
+                            <select id="promotion-source-year" name="source_year_id" required>
+                                {% for year in academic_years %}
+                                    <option value="{{ year.id }}" {{ 'selected' if source_year_id == year.id else '' }}>{{ year.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button class="management-submit" type="submit">Load Students</button>
+                    </form>
+                {% else %}
+                    <p class="management-empty">Create a new academic year and make it current before moving students from a previous year.</p>
+                {% endif %}
+            </section>
+
+            {% if source_year %}
+                <section class="management-panel">
+                    <h2>Students from {{ source_year.name }}</h2>
+                    {% if source_students %}
+                        <form class="management-form promotion-form" method="post" action="{{ url_for('promote_students') }}" data-student-promotion>
+                            <input type="hidden" name="source_year_id" value="{{ source_year.id }}">
+                            <div class="form-field promotion-date-field">
+                                <label for="promotion-enrollment-date">Enrollment date in {{ current_year.academic_year_name }}</label>
+                                <input id="promotion-enrollment-date" type="date" name="enrollment_date" min="{{ current_year.start_date }}" max="{{ current_year.end_date }}" value="{{ current_year.start_date }}" required>
+                            </div>
+                            <p class="promotion-help">Select the students to enroll. You can change the suggested class, repeat a class, or leave a student unchecked to defer or graduate.</p>
+                            <div class="table-container">
+                                <table>
+                                    <thead><tr><th>Enroll</th><th>Student</th><th>Previous class</th><th>Current-year class</th></tr></thead>
+                                    <tbody>
+                                        {% for student in source_students %}
+                                            <tr>
+                                                {% if student.student_id in current_enrollments %}
+                                                    <td>Already enrolled</td>
+                                                    <td>{{ student.name }} ({{ student.reg_no }})</td>
+                                                    <td>{{ student.class_name }}</td>
+                                                    <td>{{ current_enrollments[student.student_id] }}</td>
+                                                {% else %}
+                                                    <td><input class="promotion-toggle" type="checkbox" name="student_id" value="{{ student.student_id }}" {{ 'checked' if suggested_class_ids[student.student_id] else '' }} aria-label="Enroll {{ student.name }}"></td>
+                                                    <td>{{ student.name }} ({{ student.reg_no }})</td>
+                                                    <td>{{ student.class_name }}</td>
+                                                    <td>
+                                                        <select class="promotion-class" name="class_id_{{ student.student_id }}" aria-label="New class for {{ student.name }}">
+                                                            <option value="">Choose a class</option>
+                                                            {% for school_class in classes %}
+                                                                <option value="{{ school_class.id }}" {{ 'selected' if suggested_class_ids[student.student_id] == school_class.id else '' }}>{{ school_class.name }}</option>
+                                                            {% endfor %}
+                                                        </select>
+                                                    </td>
+                                                {% endif %}
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <button class="management-submit" type="submit">Enroll Selected Students</button>
+                        </form>
+                    {% else %}
+                        <p class="management-empty">There are no active student enrollments in this academic year to promote.</p>
+                    {% endif %}
+                </section>
+            {% endif %}
 
         {% elif page == 'academic_years' %}
             <section class="management-panel">
@@ -459,6 +529,18 @@
                 });
             });
         });
+    document.querySelectorAll('[data-student-promotion]').forEach((form) => {
+        form.querySelectorAll('.promotion-toggle').forEach((choice) => {
+            const destination = form.querySelector(
+                `[name="class_id_${choice.value}"]`
+            );
+            const syncRequired = () => {
+                destination.required = choice.checked;
+            };
+            syncRequired();
+            choice.addEventListener('change', syncRequired);
+        });
+    });
     </script>
 </body>
 </html>

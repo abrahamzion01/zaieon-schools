@@ -1,6 +1,7 @@
 
 from datetime import date
 from functools import wraps
+import re
 import sqlite3
 
 from flask import (
@@ -88,6 +89,32 @@ def _saved_subjects_for_student(school_id, academic_year_id, term_id,
     student = next((row for row in results
                     if row["reg_no"].casefold() == registration.casefold()), None)
     return list(student["subjects"]) if student else []
+
+
+def _suggested_promotion_class_id(class_name, classes):
+    match = re.match(r"^(primary|jss|ss)\s*(\d+)(.*)$", class_name.strip(), re.I)
+    if not match:
+        return None
+    level, grade_text, suffix = match.groups()
+    level = level.casefold()
+    grade = int(grade_text)
+    if level == "primary" and grade < 6:
+        next_level, next_grade = "Primary", grade + 1
+    elif level == "primary" and grade == 6:
+        next_level, next_grade = "JSS", 1
+    elif level == "jss" and grade < 3:
+        next_level, next_grade = "JSS", grade + 1
+    elif level == "jss" and grade == 3:
+        next_level, next_grade = "SS", 1
+    elif level == "ss" and grade < 3:
+        next_level, next_grade = "SS", grade + 1
+    else:
+        return None
+
+    target_name = f"{next_level} {next_grade}{suffix}".strip().casefold()
+    target = next((school_class for school_class in classes
+                   if school_class["name"].strip().casefold() == target_name), None)
+    return target["id"] if target else None
 
 
 def admin_required(view):
@@ -706,6 +733,105 @@ def manage_academic_years():
         page_title="Academic Years",
         page_description=f"Manage academic years for {school['school_name']}.",
         academic_years=database.get_school_academic_years(school_id),
+    )
+
+
+@app.route("/promote-students", methods=["GET", "POST"])
+@admin_required
+def promote_students():
+    school_id = session["school_id"]
+    current_year = database.get_school_context(school_id)
+    years = database.get_school_academic_years(school_id)
+    previous_years = [
+        year for year in years
+        if not year["is_current"] and year["end_date"] < current_year["start_date"]
+    ]
+
+    requested_source_id = (
+        request.form.get("source_year_id", "")
+        if request.method == "POST"
+        else request.args.get("source_year_id", "")
+    )
+    try:
+        source_year_id = int(requested_source_id)
+    except (TypeError, ValueError):
+        source_year_id = previous_years[0]["id"] if previous_years else None
+    source_year = next(
+        (year for year in previous_years if year["id"] == source_year_id), None
+    )
+
+    if request.method == "POST":
+        if source_year is None:
+            flash("Choose a previous academic year in this school.")
+            return redirect(url_for("promote_students"))
+        promotions = []
+        try:
+            for selected_student_id in request.form.getlist("student_id"):
+                class_id = request.form.get(f"class_id_{selected_student_id}", "")
+                try:
+                    student_id = int(selected_student_id)
+                    class_id = int(class_id)
+                except (TypeError, ValueError) as error:
+                    raise ValueError(
+                        "Choose a destination class for every selected student."
+                    ) from error
+                promotions.append({
+                    "student_id": student_id,
+                    "class_id": class_id,
+                })
+            enrolled_count = database.promote_students_to_year(
+                school_id, source_year_id, current_year["academic_year_id"],
+                promotions, request.form.get("enrollment_date", ""),
+            )
+        except (TypeError, ValueError, sqlite3.IntegrityError) as error:
+            message = str(error) or "The selected students could not be enrolled."
+            if isinstance(error, sqlite3.IntegrityError):
+                message = "One or more students already have an enrollment in this year."
+            flash(message)
+        else:
+            student_label = "student" if enrolled_count == 1 else "students"
+            flash(
+                f"{enrolled_count} {student_label} enrolled in "
+                f"{current_year['academic_year_name']}."
+            )
+        return redirect(url_for(
+            "promote_students", source_year_id=source_year_id
+        ))
+
+    if source_year is None and requested_source_id:
+        flash("Choose a previous academic year in this school.")
+    source_students = (
+        database.get_students_for_year(school_id, source_year_id)
+        if source_year else []
+    )
+    current_students = database.get_students_for_year(
+        school_id, current_year["academic_year_id"]
+    )
+    current_enrollments = {
+        student["student_id"]: student["class_name"]
+        for student in current_students
+    }
+    classes = database.get_school_classes(school_id)
+    suggested_class_ids = {
+        student["student_id"]: _suggested_promotion_class_id(
+            student["class_name"], classes
+        )
+        for student in source_students
+    }
+
+    return render_template(
+        "admin_section.html",
+        page="promote_students",
+        page_title="Promote Students",
+        page_description=f"Enroll students from a previous year into {current_year['academic_year_name']}.",
+        academic_years=previous_years,
+        current_year=current_year,
+        source_year=source_year,
+        source_year_id=source_year_id,
+        source_students=source_students,
+        current_enrollments=current_enrollments,
+        suggested_class_ids=suggested_class_ids,
+        classes=classes,
     )
 
 

@@ -292,6 +292,90 @@ def test_terms_route_rejects_an_academic_year_outside_the_school(admin_client):
     ) == []
 
 
+def test_admin_promotes_students_and_preserves_previous_year_results(admin_client):
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+        admin_id = session["user_id"]
+    source_year = database.get_school_context(school_id)
+    classes = database.get_school_classes(school_id)
+    primary_one = next(row for row in classes if row["name"] == "Primary 1")
+    primary_two = next(row for row in classes if row["name"] == "Primary 2")
+    first_id = database.create_student(
+        school_id, "REG-PROMOTE-1", "Student One"
+    )
+    second_id = database.create_student(
+        school_id, "REG-PROMOTE-2", "Student Two"
+    )
+    database.enroll_student(
+        first_id, primary_one["id"], source_year["academic_year_id"],
+        "2026-09-02"
+    )
+    database.enroll_student(
+        second_id, primary_two["id"], source_year["academic_year_id"],
+        "2026-09-02"
+    )
+    old_term_id = database.create_term(
+        source_year["academic_year_id"], "First Term", 1,
+        "2026-09-01", "2026-12-18"
+    )
+    database.create_student_term_results(
+        school_id, source_year["academic_year_id"], "REG-PROMOTE-1",
+        old_term_id, {"Mathematics": 91}, admin_id
+    )
+
+    current_year_id = database.create_academic_year(
+        school_id, "2027/2028", "2027-09-01", "2028-07-31",
+        is_current=True,
+    )
+    database.create_academic_year(
+        school_id, "2028/2029", "2028-09-01", "2029-07-31"
+    )
+    page = admin_client.get(
+        f"/promote-students?source_year_id={source_year['academic_year_id']}"
+    )
+    assert page.status_code == 200
+    assert b"Enroll students in 2027/2028" in page.data
+    assert b"Student One" in page.data
+    assert b"Student Two" in page.data
+    assert b"2028/2029" not in page.data
+    assert f'value="{primary_two["id"]}" selected>Primary 2'.encode() in page.data
+
+    invalid_batch = admin_client.post("/promote-students", data={
+        "source_year_id": str(source_year["academic_year_id"]),
+        "enrollment_date": "2027-09-01",
+        "student_id": [str(first_id), str(second_id)],
+        f"class_id_{first_id}": str(primary_two["id"]),
+        f"class_id_{second_id}": "99999",
+    }, follow_redirects=True)
+    assert b"Choose an active destination class in this school." in invalid_batch.data
+    assert database.get_students_for_year(school_id, current_year_id) == []
+
+    promoted = admin_client.post("/promote-students", data={
+        "source_year_id": str(source_year["academic_year_id"]),
+        "enrollment_date": "2027-09-01",
+        "student_id": [str(first_id)],
+        f"class_id_{first_id}": str(primary_two["id"]),
+    }, follow_redirects=True)
+    assert b"1 student enrolled in 2027/2028." in promoted.data
+    target_students = database.get_students_for_year(school_id, current_year_id)
+    assert [(student["reg_no"], student["class_name"]) for student in target_students] == [
+        ("REG-PROMOTE-1", "Primary 2")
+    ]
+    assert len(database.get_students_for_year(
+        school_id, source_year["academic_year_id"]
+    )) == 2
+    previous_results = database.get_results_for_term(
+        school_id, source_year["academic_year_id"], old_term_id
+    )
+    assert previous_results[0]["subjects"] == {"Mathematics": 91}
+
+    refreshed = admin_client.get(
+        f"/promote-students?source_year_id={source_year['academic_year_id']}"
+    )
+    assert b"Already enrolled" in refreshed.data
+    assert b"Primary 2" in refreshed.data
+
+
 def test_teacher_page_assigns_a_class(admin_client):
     assert authentication.register_user(
         "teacher-test", "TeacherPassword123", "teacher"

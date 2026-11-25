@@ -22,6 +22,7 @@ The project is being developed with a focus on simplifying school administration
 - Teacher class assignment.
 - Class-based attendance management.
 - Create and activate school academic years, with terms prepared per year.
+- Enroll returning students into current-year classes with next-class suggestions.
 - Persistent data storage.
 
 ## School Structure
