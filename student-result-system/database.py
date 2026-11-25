@@ -318,6 +318,14 @@ def create_academic_year(school_id, name, start_date, end_date, is_current=False
         raise ValueError("Academic year start date must be before its end date.")
 
     with _connection_scope() as connection:
+        overlap = connection.execute("""
+            SELECT 1 FROM academic_years
+            WHERE school_id = ?
+              AND NOT (end_date < ? OR start_date > ?)
+            LIMIT 1
+        """, (school_id, start.isoformat(), end.isoformat())).fetchone()
+        if overlap:
+            raise ValueError("Academic year dates cannot overlap another year.")
         if is_current:
             connection.execute(
                 "UPDATE academic_years SET is_current = 0 WHERE school_id = ?",
@@ -329,6 +337,47 @@ def create_academic_year(school_id, name, start_date, end_date, is_current=False
             ) VALUES (?, ?, ?, ?, ?)
         """, (school_id, name, start.isoformat(), end.isoformat(), int(is_current)))
         return cursor.lastrowid
+
+
+def get_school_academic_years(school_id):
+    """Return all academic years belonging to one school."""
+    with _connection_scope() as connection:
+        return connection.execute("""
+            SELECT id, name, start_date, end_date, is_current
+            FROM academic_years
+            WHERE school_id = ?
+            ORDER BY start_date DESC, id DESC
+        """, (school_id,)).fetchall()
+
+
+def get_school_academic_year(school_id, academic_year_id):
+    """Return one year scoped to a school, or None if it belongs elsewhere."""
+    with _connection_scope() as connection:
+        return connection.execute("""
+            SELECT id AS academic_year_id, name AS academic_year_name,
+                   start_date, end_date, is_current
+            FROM academic_years
+            WHERE school_id = ? AND id = ?
+        """, (school_id, academic_year_id)).fetchone()
+
+
+def set_current_academic_year(school_id, academic_year_id):
+    """Make a school's existing academic year current without affecting others."""
+    with _connection_scope() as connection:
+        year = connection.execute("""
+            SELECT id FROM academic_years
+            WHERE school_id = ? AND id = ?
+        """, (school_id, academic_year_id)).fetchone()
+        if year is None:
+            raise ValueError("Choose an academic year belonging to this school.")
+        connection.execute(
+            "UPDATE academic_years SET is_current = 0 WHERE school_id = ?",
+            (school_id,),
+        )
+        connection.execute("""
+            UPDATE academic_years SET is_current = 1
+            WHERE school_id = ? AND id = ?
+        """, (school_id, academic_year_id))
 
 
 def create_term(academic_year_id, name, sequence, start_date, end_date):
