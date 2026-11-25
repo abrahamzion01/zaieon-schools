@@ -1,6 +1,7 @@
 
 from datetime import date
 from functools import wraps
+import os
 import re
 import sqlite3
 
@@ -22,7 +23,11 @@ import main
 import secrets
 
 app = Flask(__name__)
-app.secret_key = "change-this-to-a-secure-random-secret-before-deployment"
+app.secret_key = (
+    os.environ.get("ZAIEON_SECRET_KEY")
+    or os.environ.get("SECRET_KEY")
+    or secrets.token_hex(32)
+)
 main.load_students()
 
 STANDARD_CLASSES = [
@@ -128,7 +133,7 @@ def admin_required(view):
             return redirect(url_for("dashboard"))
 
         if session.get("must_change_password"):
-            return "Password change page coming next."
+            return redirect(url_for("change_password"))
 
         memberships = database.get_school_memberships(session["user_id"])
         if not memberships:
@@ -164,7 +169,7 @@ def teacher_required(view):
             flash("This page is for teachers.")
             return redirect(url_for("dashboard"))
         if session.get("must_change_password"):
-            return "Password change page coming next."
+            return redirect(url_for("change_password"))
 
         memberships = [
             row for row in database.get_school_memberships(session["user_id"])
@@ -237,15 +242,83 @@ def login():
     return render_template("login.html")
 
 
+@app.route("/change-password", methods=["GET", "POST"])
+def change_password():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    forced = bool(session.get("must_change_password"))
+
+    if request.method == "POST":
+        current_password = request.form.get("current_password", "")
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+
+        if not forced:
+            if not current_password:
+                flash("Please enter your current password.")
+                return redirect(url_for("change_password"))
+            if authentication.login_user(session["username"], current_password) is None:
+                flash("Current password is incorrect.")
+                return redirect(url_for("change_password"))
+
+        if not new_password or not confirm_password:
+            flash("Please complete both password fields.")
+            return redirect(url_for("change_password"))
+
+        if len(new_password) < 8:
+            flash("Your new password must contain at least 8 characters.")
+            return redirect(url_for("change_password"))
+
+        if new_password != confirm_password:
+            flash("The passwords do not match.")
+            return redirect(url_for("change_password"))
+
+        if not authentication.change_password(session["user_id"], new_password):
+            flash("Unable to update your password. Please try again.")
+            return redirect(url_for("change_password"))
+
+        session["must_change_password"] = False
+        flash("Your password has been updated.", "success")
+        return redirect(url_for("dashboard"))
+
+    return render_template("change_password.html", forced=forced)
+
+
 @app.route("/dashboard")
 def dashboard():
     if "user_id" not in session:
         return redirect(url_for("login"))
 
-    if session["must_change_password"]:
-        return "Password change page coming next."
+    if session.get("must_change_password"):
+        return redirect(url_for("change_password"))
 
     role = session["role"]
+
+    if role == "student":
+        portal = database.get_student_portal_context(session["user_id"])
+        for term_result in portal["term_results"]:
+            term_result["grade"] = main.calculate_grade(term_result["average"])
+
+        legacy_student = None
+        reg_no = portal.get("reg_no")
+        if reg_no:
+            legacy_student = next(
+                (student for student in main.students
+                 if student.get("reg_no", "").casefold() == reg_no.casefold()),
+                None,
+            )
+
+        return render_template(
+            "student_dashboard.html",
+            profile=portal["profile"],
+            reg_no=reg_no,
+            current_enrollment=portal["current_enrollment"],
+            term_results=portal["term_results"],
+            attendance_summary=portal["attendance_summary"],
+            recent_attendance=portal["recent_attendance"],
+            legacy_student=legacy_student,
+        )
 
     if role == "teacher":
         memberships = [
@@ -285,6 +358,30 @@ def dashboard():
             else:
                 return redirect(url_for("select_school"))
 
+        school_id = session["school_id"]
+        school = database.get_school_context(school_id)
+        summary = (
+            database.get_school_dashboard_summary(
+                school_id, school["academic_year_id"]
+            )
+            if school else None
+        )
+        recent_students = []
+        if summary:
+            for student in summary["recent_students"]:
+                avg = student.get("average")
+                student["grade"] = (
+                    main.calculate_grade(avg) if avg is not None else None
+                )
+                recent_students.append(student)
+
+        return render_template(
+            "dashboard.html",
+            school=school,
+            summary=summary,
+            recent_students=recent_students,
+        )
+
     return render_template("dashboard.html")
 
 
@@ -313,7 +410,7 @@ def school_setup():
         except (ValueError, sqlite3.IntegrityError) as error:
             flash(str(error))
         else:
-            flash("School setup is complete. You can now register students and assign teachers.")
+            flash("School setup is complete. You can now register students and assign teachers.", "success")
             return redirect(url_for("dashboard"))
 
     return render_template(
@@ -402,7 +499,7 @@ def manage_results():
             return redirect(url_for(
                 "manage_results", selected=registration, term_id=selected_term
             ))
-        flash(f"Results saved for {student['name']}.")
+        flash(f"Results saved for {student['name']}.", "success")
         return redirect(url_for(
             "manage_results", selected=registration, term_id=selected_term
         ))
@@ -498,7 +595,7 @@ def manage_subjects():
                 database.save_school_class_subjects(
                     school_id, selected_class_id, selected_subjects
                 )
-                flash(f"Subject offerings saved for {selected_class['name']}.")
+                flash(f"Subject offerings saved for {selected_class['name']}.", "success")
                 return redirect(url_for(
                     "manage_subjects", class_id=selected_class_id
                 ))
@@ -590,7 +687,7 @@ def teacher_results():
         except (ValueError, sqlite3.IntegrityError) as error:
             flash(str(error) or "Unable to save these results.")
         else:
-            flash(f"Results saved for {student['name']}.")
+            flash(f"Results saved for {student['name']}.", "success")
         return redirect(url_for(
             "teacher_results", class_id=class_id, term_id=term_id,
             selected=registration
@@ -695,7 +792,7 @@ def manage_terms():
                 message = "That term name or sequence is already in use."
             flash(message)
         else:
-            flash("Academic term added.")
+            flash("Academic term added.", "success")
             return redirect(url_for(
                 "manage_terms", academic_year_id=academic_year_id
             ))
@@ -724,7 +821,7 @@ def manage_academic_years():
             except (TypeError, ValueError) as error:
                 flash(str(error) or "Choose an academic year belonging to this school.")
             else:
-                flash("Current academic year updated.")
+                flash("Current academic year updated.", "success")
             return redirect(url_for("manage_academic_years"))
 
         try:
@@ -741,7 +838,7 @@ def manage_academic_years():
                 message = "That academic year name is already in use."
             flash(message)
         else:
-            flash("Academic year added.")
+            flash("Academic year added.", "success")
             return redirect(url_for("manage_terms", academic_year_id=year_id))
 
     school = database.get_school_context(school_id)
@@ -810,7 +907,8 @@ def promote_students():
             student_label = "student" if enrolled_count == 1 else "students"
             flash(
                 f"{enrolled_count} {student_label} enrolled in "
-                f"{current_year['academic_year_name']}."
+                f"{current_year['academic_year_name']}.",
+                "success",
             )
         return redirect(url_for(
             "promote_students", source_year_id=source_year_id
@@ -886,7 +984,8 @@ def import_legacy_students():
             flash(
                 f"Import complete: {counts['created']} profiles created, "
                 f"{counts['enrolled']} students enrolled, "
-                f"{counts['skipped']} already enrolled and skipped."
+                f"{counts['skipped']} already enrolled and skipped.",
+                "success",
             )
             return redirect(url_for("import_legacy_students"))
 
@@ -959,7 +1058,7 @@ def manage_teachers():
                 if skipped_count:
                     label = "assignment was" if skipped_count == 1 else "assignments were"
                     message += f" {skipped_count} selected {label} already present."
-                flash(message)
+                flash(message, "success")
             return redirect(url_for(
                 "manage_teachers", source_year_id=source_year_id
             ))
@@ -991,7 +1090,7 @@ def manage_teachers():
             except ValueError as error:
                 flash(str(error))
             else:
-                flash(f"{school_class['name']} assigned to {teacher['username']}.")
+                flash(f"{school_class['name']} assigned to {teacher['username']}.", "success")
 
         return redirect(url_for("manage_teachers"))
 
@@ -1125,7 +1224,7 @@ def attendance_overview():
                     message = f"Cleared {counts['cleared']} attendance marks."
                 else:
                     message = "No attendance marks changed."
-                flash(message)
+                flash(message, "success")
                 return redirect(url_for(
                     "attendance_overview", class_id=selected_class_id,
                     date=selected_date.isoformat()
@@ -1343,7 +1442,7 @@ def register_student():
 @app.route("/logout")
 def logout():
     session.clear()
-    flash("You have been logged out.")
+    flash("You have been logged out.", "success")
     return redirect(url_for("login"))
 
 

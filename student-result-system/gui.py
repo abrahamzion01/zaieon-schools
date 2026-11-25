@@ -1965,12 +1965,7 @@ def show_attendance_history(user):
     panel = tk.Frame(page_area, bg=WHITE, padx=25, pady=25)
     panel.pack(fill="both", expand=True, padx=30, pady=20)
 
-    school_classes = [
-        "Primary 1", "Primary 2", "Primary 3",
-        "Primary 4", "Primary 5", "Primary 6",
-        "JSS 1", "JSS 2", "JSS 3",
-        "SS 1", "SS 2", "SS 3"
-    ]
+    assigned_classes = database.get_teacher_classes(user["id"])
 
     tk.Label(
         panel,
@@ -1982,11 +1977,14 @@ def show_attendance_history(user):
 
     class_dropdown = ttk.Combobox(
         panel,
-        values=school_classes,
+        values=assigned_classes,
         state="readonly"
     )
     class_dropdown.pack(fill="x", pady=8)
-    class_dropdown.set("Select class")
+    if assigned_classes:
+        class_dropdown.set("Select class")
+    else:
+        class_dropdown.set("No classes assigned")
 
     tk.Label(
         panel,
@@ -2010,10 +2008,18 @@ def show_attendance_history(user):
         selected_class = class_dropdown.get()
         selected_date = date_entry.get().strip()
 
-        if selected_class == "Select class" or not selected_date:
+        if selected_class in ("Select class", "No classes assigned") or not selected_date:
             messagebox.showwarning(
                 "Missing Information",
                 "Please select a class and enter a date.",
+                parent=root
+            )
+            return
+
+        if selected_class not in database.get_teacher_classes(user["id"]):
+            messagebox.showerror(
+                "Access Denied",
+                "You are not assigned to this class.",
                 parent=root
             )
             return

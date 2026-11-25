@@ -15,40 +15,64 @@
 
     <aside class="sidebar">
 
-        <div class="sidebar-brand">
+        <a class="sidebar-brand" href="{{ url_for('dashboard') }}">
             <img src="{{ url_for('static', filename='images/zaieon-schools-logo.png') }}"
                  alt="ZAIEON Schools">
             <div>
                 <h2>ZAIEON</h2>
                 <span>SCHOOLS</span>
             </div>
-        </div>
+        </a>
 
         <p class="nav-label">MAIN MENU</p>
 
         <nav class="sidebar-nav">
-            <a href="#" class="nav-link active">
+            <a href="{{ url_for('dashboard') }}" class="nav-link active">
                 <span>▦</span> Dashboard
             </a>
 
-            <a href="#" class="nav-link">
+            <a href="{{ url_for('register_student') }}" class="nav-link">
                 <span>♙</span> Students
             </a>
 
-            <a href="#" class="nav-link">
+            <a href="{{ url_for('import_legacy_students') }}" class="nav-link">
+                <span>⇧</span> Import Students
+            </a>
+
+            <a href="{{ url_for('manage_results') }}" class="nav-link">
                 <span>▤</span> Academic Results
             </a>
 
-            <a href="#" class="nav-link">
-                <span>◷</span> Attendance
+            <a href="{{ url_for('manage_subjects') }}" class="nav-link">
+                <span>▧</span> Subjects
             </a>
 
-            <a href="#" class="nav-link">
+            <a href="{{ url_for('manage_academic_years') }}" class="nav-link">
+                <span>▦</span> Academic Years
+            </a>
+
+            <a href="{{ url_for('manage_terms') }}" class="nav-link">
+                <span>▦</span> Academic Terms
+            </a>
+
+            <a href="{{ url_for('promote_students') }}" class="nav-link">
+                <span>⇧</span> Promote Students
+            </a>
+
+            <a href="{{ url_for('attendance_overview') }}" class="nav-link">
+                <span>◷</span> Daily Attendance
+            </a>
+
+            <a href="{{ url_for('attendance_report') }}" class="nav-link">
+                <span>▤</span> Attendance Report
+            </a>
+
+            <a href="{{ url_for('manage_teachers') }}" class="nav-link">
                 <span>♧</span> Teachers
             </a>
 
-            <a href="#" class="nav-link">
-                <span>⚙</span> Settings
+            <a href="{{ url_for('change_password') }}" class="nav-link">
+                <span>⚙</span> Change Password
             </a>
         </nav>
 
@@ -68,7 +92,7 @@
 
             <div>
                 <h1>Dashboard</h1>
-                <p>Welcome to your school management portal.</p>
+                <p>{% if school %}{{ school.school_name }} · {{ school.academic_year_name }}{% else %}Welcome to your school management portal.{% endif %}</p>
             </div>
 
             <div class="admin-profile">
@@ -81,10 +105,10 @@
 
         </header>
 
-        {% with messages = get_flashed_messages() %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                {% for message in messages %}
-                    <div class="flash-message">{{ message }}</div>
+                {% for category, message in messages %}
+                    <div class="flash-message {{ 'flash-success' if category == 'success' else '' }}">{{ message }}</div>
                 {% endfor %}
             {% endif %}
         {% endwith %}
@@ -114,28 +138,28 @@
                 <article class="stat-card">
                     <div class="stat-icon students-icon">♙</div>
                     <p>Total Students</p>
-                    <h3>—</h3>
+                    <h3>{{ summary.total_students if summary else '—' }}</h3>
                     <span>Registered students</span>
                 </article>
 
                 <article class="stat-card">
                     <div class="stat-icon results-icon">▤</div>
                     <p>Results Entered</p>
-                    <h3>—</h3>
+                    <h3>{{ summary.results_entered if summary else '—' }}</h3>
                     <span>Students with results</span>
                 </article>
 
                 <article class="stat-card">
                     <div class="stat-icon highest-icon">↗</div>
                     <p>Highest Average</p>
-                    <h3>—</h3>
+                    <h3>{{ ('%.2f%%'|format(summary.highest_average)) if summary and summary.highest_average is not none else '—' }}</h3>
                     <span>Academic performance</span>
                 </article>
 
                 <article class="stat-card">
                     <div class="stat-icon lowest-icon">↘</div>
                     <p>Lowest Average</p>
-                    <h3>—</h3>
+                    <h3>{{ ('%.2f%%'|format(summary.lowest_average)) if summary and summary.lowest_average is not none else '—' }}</h3>
                     <span>Academic performance</span>
                 </article>
 
@@ -211,17 +235,30 @@
                         <tr>
                             <th>Student Name</th>
                             <th>Registration Number</th>
+                            <th>Class</th>
                             <th>Average</th>
                             <th>Grade</th>
                         </tr>
                     </thead>
 
                     <tbody>
-                        <tr>
-                            <td colspan="4" class="empty-state">
-                                Student records will appear here.
-                            </td>
-                        </tr>
+                        {% if recent_students %}
+                            {% for student in recent_students %}
+                                <tr>
+                                    <td>{{ student.name }}</td>
+                                    <td>{{ student.reg_no }}</td>
+                                    <td>{{ student.class_name }}</td>
+                                    <td>{{ ('%.2f%%'|format(student.average)) if student.average is not none else 'Pending' }}</td>
+                                    <td>{{ student.grade or '—' }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="empty-state">
+                                    Student records will appear here.
+                                </td>
+                            </tr>
+                        {% endif %}
                     </tbody>
                 </table>
             </div>

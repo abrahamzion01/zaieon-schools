@@ -1410,6 +1410,210 @@ def get_teacher_classes(teacher_id):
 
     return [row["class_name"] for row in classes]
 
+
+def get_school_dashboard_summary(school_id, academic_year_id):
+    """Return current-year statistics and recent enrollments for one school."""
+    with _connection_scope() as connection:
+        total_students = connection.execute("""
+            SELECT COUNT(*)
+            FROM enrollments
+            JOIN students ON students.id = enrollments.student_id
+                         AND students.school_id = enrollments.school_id
+            WHERE enrollments.school_id = ?
+              AND enrollments.academic_year_id = ?
+              AND enrollments.status = 'active'
+              AND students.is_active = 1
+        """, (school_id, academic_year_id)).fetchone()[0]
+
+        student_averages = connection.execute("""
+            SELECT enrollments.id AS enrollment_id,
+                   AVG(student_results.score) AS average
+            FROM enrollments
+            JOIN students ON students.id = enrollments.student_id
+                         AND students.school_id = enrollments.school_id
+            JOIN student_results ON student_results.enrollment_id = enrollments.id
+            JOIN terms ON terms.id = student_results.term_id
+                      AND terms.academic_year_id = enrollments.academic_year_id
+            WHERE enrollments.school_id = ?
+              AND enrollments.academic_year_id = ?
+              AND enrollments.status = 'active'
+              AND students.is_active = 1
+            GROUP BY enrollments.id
+        """, (school_id, academic_year_id)).fetchall()
+
+        averages = [row["average"] for row in student_averages if row["average"] is not None]
+
+        recent_rows = connection.execute("""
+            SELECT students.full_name AS name,
+                   students.registration_number AS reg_no,
+                   school_classes.name AS class_name,
+                   enrollments.enrollment_date,
+                   AVG(student_results.score) AS average
+            FROM enrollments
+            JOIN students ON students.id = enrollments.student_id
+                         AND students.school_id = enrollments.school_id
+            JOIN school_classes ON school_classes.id = enrollments.class_id
+                                AND school_classes.school_id = enrollments.school_id
+            LEFT JOIN student_results
+              ON student_results.enrollment_id = enrollments.id
+            LEFT JOIN terms
+              ON terms.id = student_results.term_id
+             AND terms.academic_year_id = enrollments.academic_year_id
+            WHERE enrollments.school_id = ?
+              AND enrollments.academic_year_id = ?
+              AND enrollments.status = 'active'
+              AND students.is_active = 1
+            GROUP BY enrollments.id, students.full_name,
+                     students.registration_number, school_classes.name,
+                     enrollments.enrollment_date
+            ORDER BY enrollments.id DESC
+            LIMIT 8
+        """, (school_id, academic_year_id)).fetchall()
+
+    return {
+        "total_students": total_students,
+        "results_entered": len(averages),
+        "highest_average": max(averages) if averages else None,
+        "lowest_average": min(averages) if averages else None,
+        "recent_students": [dict(row) for row in recent_rows],
+    }
+
+
+def get_student_portal_context(user_id):
+    """Return a student's school profile, term results, and attendance summary."""
+    with _connection_scope() as connection:
+        profile = connection.execute("""
+            SELECT students.id AS student_id,
+                   students.school_id,
+                   students.registration_number AS reg_no,
+                   students.full_name AS name,
+                   schools.name AS school_name
+            FROM students
+            JOIN schools ON schools.id = students.school_id
+            WHERE students.user_id = ? AND students.is_active = 1
+        """, (user_id,)).fetchone()
+
+        if profile is None:
+            account = connection.execute(
+                "SELECT reg_no FROM student_accounts WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+            return {
+                "profile": None,
+                "reg_no": account["reg_no"] if account else None,
+                "current_enrollment": None,
+                "term_results": [],
+                "attendance_summary": None,
+                "recent_attendance": [],
+            }
+
+        enrollment_rows = connection.execute("""
+            SELECT enrollments.id AS enrollment_id,
+                   enrollments.enrollment_date,
+                   enrollments.status,
+                   school_classes.name AS class_name,
+                   academic_years.id AS academic_year_id,
+                   academic_years.name AS academic_year_name,
+                   academic_years.is_current
+            FROM enrollments
+            JOIN school_classes ON school_classes.id = enrollments.class_id
+                                AND school_classes.school_id = enrollments.school_id
+            JOIN academic_years ON academic_years.id = enrollments.academic_year_id
+                                AND academic_years.school_id = enrollments.school_id
+            WHERE enrollments.student_id = ?
+              AND enrollments.school_id = ?
+            ORDER BY academic_years.is_current DESC,
+                     academic_years.start_date DESC,
+                     enrollments.id DESC
+        """, (profile["student_id"], profile["school_id"])).fetchall()
+
+        current_enrollment = dict(enrollment_rows[0]) if enrollment_rows else None
+
+        result_rows = connection.execute("""
+            SELECT academic_years.id AS academic_year_id,
+                   academic_years.name AS academic_year_name,
+                   terms.id AS term_id,
+                   terms.name AS term_name,
+                   terms.sequence AS term_sequence,
+                   school_classes.name AS class_name,
+                   student_results.subject,
+                   student_results.score
+            FROM enrollments
+            JOIN school_classes ON school_classes.id = enrollments.class_id
+                                AND school_classes.school_id = enrollments.school_id
+            JOIN academic_years ON academic_years.id = enrollments.academic_year_id
+                                AND academic_years.school_id = enrollments.school_id
+            JOIN student_results ON student_results.enrollment_id = enrollments.id
+            JOIN terms ON terms.id = student_results.term_id
+                      AND terms.academic_year_id = enrollments.academic_year_id
+            WHERE enrollments.student_id = ?
+              AND enrollments.school_id = ?
+            ORDER BY academic_years.start_date DESC,
+                     terms.sequence ASC,
+                     student_results.subject COLLATE NOCASE ASC
+        """, (profile["student_id"], profile["school_id"])).fetchall()
+
+        term_map = {}
+        for row in result_rows:
+            key = (row["academic_year_id"], row["term_id"])
+            entry = term_map.setdefault(key, {
+                "academic_year_name": row["academic_year_name"],
+                "term_name": row["term_name"],
+                "class_name": row["class_name"],
+                "subjects": [],
+            })
+            entry["subjects"].append({
+                "name": row["subject"],
+                "score": row["score"],
+            })
+
+        term_results = []
+        for entry in term_map.values():
+            scores = [item["score"] for item in entry["subjects"]]
+            entry["total"] = sum(scores)
+            entry["average"] = sum(scores) / len(scores)
+            term_results.append(entry)
+
+        attendance_summary = None
+        recent_attendance = []
+        if current_enrollment is not None:
+            summary_row = connection.execute("""
+                SELECT COUNT(id) AS marked_days,
+                       COALESCE(SUM(status = 'Present'), 0) AS present,
+                       COALESCE(SUM(status = 'Absent'), 0) AS absent,
+                       COALESCE(SUM(status = 'Late'), 0) AS late
+                FROM attendance_records
+                WHERE school_id = ? AND enrollment_id = ?
+            """, (profile["school_id"], current_enrollment["enrollment_id"])).fetchone()
+            marked_days = summary_row["marked_days"]
+            attendance_summary = {
+                "marked_days": marked_days,
+                "present": summary_row["present"],
+                "absent": summary_row["absent"],
+                "late": summary_row["late"],
+                "attendance_rate": (
+                    round(summary_row["present"] * 100 / marked_days, 1)
+                    if marked_days else None
+                ),
+            }
+            recent_rows = connection.execute("""
+                SELECT attendance_date, status
+                FROM attendance_records
+                WHERE school_id = ? AND enrollment_id = ?
+                ORDER BY attendance_date DESC
+                LIMIT 10
+            """, (profile["school_id"], current_enrollment["enrollment_id"])).fetchall()
+            recent_attendance = [dict(row) for row in recent_rows]
+
+    return {
+        "profile": dict(profile),
+        "reg_no": profile["reg_no"],
+        "current_enrollment": current_enrollment,
+        "term_results": term_results,
+        "attendance_summary": attendance_summary,
+        "recent_attendance": recent_attendance,
+    }
+
 if __name__ == "__main__":
     initialize_database()
     print("School database created successfully!")

@@ -1035,7 +1035,127 @@ def test_teacher_attendance_report_only_lists_assigned_classes(teacher_client):
 def test_admin_pages_redirect_anonymous_visitors_to_login():
     client = web_app.app.test_client()
 
-    for path in ("/results", "/teachers", "/attendance"):
+    for path in ("/results", "/teachers", "/attendance", "/change-password"):
         response = client.get(path)
         assert response.status_code == 302
         assert response.headers["Location"].endswith("/login")
+
+
+def test_admin_dashboard_shows_live_statistics_and_recent_students(admin_client):
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+        admin_id = session["user_id"]
+    school = database.get_school_context(school_id)
+    primary_one = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "Primary 1"
+    )
+    first_student = database.create_student(
+        school_id, "REG-DASH-1", "Dashboard Student One"
+    )
+    second_student = database.create_student(
+        school_id, "REG-DASH-2", "Dashboard Student Two"
+    )
+    database.enroll_student(
+        first_student, primary_one["id"], school["academic_year_id"],
+        "2026-09-02"
+    )
+    database.enroll_student(
+        second_student, primary_one["id"], school["academic_year_id"],
+        "2026-09-03"
+    )
+    term_id = database.create_term(
+        school["academic_year_id"], "First Term", 1,
+        "2026-09-01", "2026-12-18"
+    )
+    database.create_student_term_results(
+        school_id, school["academic_year_id"], "REG-DASH-1", term_id,
+        {"Mathematics": 80, "English": 70}, admin_id
+    )
+
+    response = admin_client.get("/dashboard")
+    assert response.status_code == 200
+    assert b"Test School" in response.data
+    assert b"2026/2027" in response.data
+    assert b"Dashboard Student One" in response.data
+    assert b"Dashboard Student Two" in response.data
+    assert b"75.00%" in response.data
+    assert b'href="/subjects"' in response.data
+    assert b'href="/academic-years"' in response.data
+    assert b'href="/change-password"' in response.data
+
+
+def test_student_forced_password_change_and_portal_results(admin_client):
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+        admin_id = session["user_id"]
+    school = database.get_school_context(school_id)
+    primary_one = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "Primary 1"
+    )
+    student_user_id = authentication.register_student_with_enrollment(
+        "portal-student",
+        "TempPassword123",
+        "REG-PORTAL-1",
+        "Portal Student",
+        school_id,
+        primary_one["id"],
+        school["academic_year_id"],
+        "2026-09-02",
+    )
+    assert student_user_id is not None
+
+    enrollment = database.get_students_for_year(
+        school_id, school["academic_year_id"]
+    )[0]
+    term_id = database.create_term(
+        school["academic_year_id"], "First Term", 1,
+        "2026-09-01", "2026-12-18"
+    )
+    database.create_student_term_results(
+        school_id, school["academic_year_id"], "REG-PORTAL-1", term_id,
+        {"Mathematics": 85, "English": 75}, admin_id
+    )
+    database.save_class_attendance(
+        school_id, school["academic_year_id"], primary_one["id"],
+        "2026-11-23", {enrollment["enrollment_id"]: "Present"}, admin_id
+    )
+
+    student_client = web_app.app.test_client()
+    login_response = student_client.post("/login", data={
+        "username": "portal-student",
+        "password": "TempPassword123",
+    }, follow_redirects=False)
+    assert login_response.status_code == 302
+
+    dashboard_redirect = student_client.get("/dashboard")
+    assert dashboard_redirect.status_code == 302
+    assert dashboard_redirect.headers["Location"].endswith("/change-password")
+
+    mismatch = student_client.post("/change-password", data={
+        "new_password": "NewPassword123",
+        "confirm_password": "DifferentPassword123",
+    }, follow_redirects=True)
+    assert b"The passwords do not match." in mismatch.data
+
+    changed = student_client.post("/change-password", data={
+        "new_password": "NewPassword123",
+        "confirm_password": "NewPassword123",
+    }, follow_redirects=True)
+    assert changed.status_code == 200
+    assert b"Student Dashboard" in changed.data
+    assert b"Portal Student" in changed.data
+    assert b"REG-PORTAL-1" in changed.data
+    assert b"First Term" in changed.data
+    assert b"80.00%" in changed.data
+    assert b"Grade A" in changed.data
+    assert b"100.0%" in changed.data
+    assert authentication.login_user("portal-student", "NewPassword123") is not None
+
+    voluntary_fail = student_client.post("/change-password", data={
+        "current_password": "WrongPassword123",
+        "new_password": "AnotherPassword123",
+        "confirm_password": "AnotherPassword123",
+    }, follow_redirects=True)
+    assert b"Current password is incorrect." in voluntary_fail.data

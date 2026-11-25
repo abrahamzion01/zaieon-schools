@@ -26,8 +26,10 @@
             <a href="{{ url_for('manage_academic_years') }}" class="nav-link {{ 'active' if page == 'academic_years' else '' }}"><span>▦</span> Academic Years</a>
             <a href="{{ url_for('manage_terms') }}" class="nav-link {{ 'active' if page == 'terms' else '' }}"><span>▦</span> Academic Terms</a>
             <a href="{{ url_for('promote_students') }}" class="nav-link {{ 'active' if page == 'promote_students' else '' }}"><span>⇧</span> Promote Students</a>
-            <a href="{{ url_for('attendance_overview') }}" class="nav-link {{ 'active' if page == 'attendance' else '' }}"><span>◷</span> Attendance</a>
+            <a href="{{ url_for('attendance_overview') }}" class="nav-link {{ 'active' if page == 'attendance' else '' }}"><span>◷</span> Daily Attendance</a>
+            <a href="{{ url_for('attendance_report') }}" class="nav-link"><span>▤</span> Attendance Report</a>
             <a href="{{ url_for('manage_teachers') }}" class="nav-link {{ 'active' if page == 'teachers' else '' }}"><span>♧</span> Teachers</a>
+            <a href="{{ url_for('change_password') }}" class="nav-link"><span>⚙</span> Change Password</a>
         </nav>
 
         <div class="sidebar-bottom">
@@ -51,10 +53,10 @@
             </div>
         </header>
 
-        {% with messages = get_flashed_messages() %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                {% for message in messages %}
-                    <div class="flash-message">{{ message }}</div>
+                {% for category, message in messages %}
+                    <div class="flash-message {{ 'flash-success' if category == 'success' else '' }}">{{ message }}</div>
                 {% endfor %}
             {% endif %}
         {% endwith %}
