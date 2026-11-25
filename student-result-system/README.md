@@ -21,6 +21,7 @@ The project is being developed with a focus on simplifying school administration
 - Administrator, teacher and student authentication.
 - Teacher class assignment.
 - Class-based attendance management.
+- Attendance reports by academic-year date range with per-student attendance rates.
 - Create and activate school academic years, with terms prepared per year.
 - Enroll returning students into current-year classes with next-class suggestions.
 - Carry selected teacher-class assignments into a new academic year.

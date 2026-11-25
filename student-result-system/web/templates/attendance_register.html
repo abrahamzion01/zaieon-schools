@@ -17,7 +17,8 @@
             <nav class="sidebar-nav">
                 <a href="{{ url_for('dashboard') }}" class="nav-link"><span>▦</span> Dashboard</a>
                 <a href="{{ url_for('teacher_results') }}" class="nav-link"><span>▤</span> Enter Results</a>
-                <a href="{{ url_for('attendance_overview') }}" class="nav-link active"><span>◷</span> Attendance</a>
+                <a href="{{ url_for('attendance_overview') }}" class="nav-link active"><span>◷</span> Daily Attendance</a>
+                <a href="{{ url_for('attendance_report') }}" class="nav-link"><span>▤</span> Attendance Report</a>
             </nav>
         {% else %}
             <p class="nav-label">MAIN MENU</p>
@@ -30,7 +31,8 @@
                 <a href="{{ url_for('manage_academic_years') }}" class="nav-link"><span>▦</span> Academic Years</a>
                 <a href="{{ url_for('manage_terms') }}" class="nav-link"><span>▦</span> Academic Terms</a>
                 <a href="{{ url_for('promote_students') }}" class="nav-link"><span>⇧</span> Promote Students</a>
-                <a href="{{ url_for('attendance_overview') }}" class="nav-link active"><span>◷</span> Attendance</a>
+                <a href="{{ url_for('attendance_overview') }}" class="nav-link active"><span>◷</span> Daily Attendance</a>
+                <a href="{{ url_for('attendance_report') }}" class="nav-link"><span>▤</span> Attendance Report</a>
                 <a href="{{ url_for('manage_teachers') }}" class="nav-link"><span>♧</span> Teachers</a>
             </nav>
         {% endif %}

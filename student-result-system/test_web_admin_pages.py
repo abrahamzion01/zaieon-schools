@@ -951,6 +951,87 @@ def test_teacher_attendance_is_limited_to_assigned_class(teacher_client):
     )[0]["status"] == "Absent"
 
 
+def test_attendance_report_summarizes_marks_in_selected_date_range(admin_client):
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+        admin_id = session["user_id"]
+    school = database.get_school_context(school_id)
+    primary_one = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "Primary 1"
+    )
+    first_student = database.create_student(
+        school_id, "REG-ATTENDANCE-REPORT-1", "Report Student One"
+    )
+    second_student = database.create_student(
+        school_id, "REG-ATTENDANCE-REPORT-2", "Report Student Two"
+    )
+    first_enrollment = database.enroll_student(
+        first_student, primary_one["id"], school["academic_year_id"],
+        "2026-09-02"
+    )
+    second_enrollment = database.enroll_student(
+        second_student, primary_one["id"], school["academic_year_id"],
+        "2026-09-02"
+    )
+    for attendance_date, statuses in (
+        ("2026-11-23", {
+            first_enrollment: "Present", second_enrollment: "Absent"
+        }),
+        ("2026-11-24", {first_enrollment: "Absent", second_enrollment: ""}),
+        ("2026-11-25", {first_enrollment: "Late"}),
+    ):
+        database.save_class_attendance(
+            school_id, school["academic_year_id"], primary_one["id"],
+            attendance_date, statuses, admin_id
+        )
+
+    response = admin_client.get(
+        "/attendance/report?start_date=2026-11-23&end_date=2026-11-24"
+        f"&class_id={primary_one['id']}"
+    )
+
+    assert response.status_code == 200
+    assert b"Attendance Report" in response.data
+    assert b"REG-ATTENDANCE-REPORT-1" in response.data
+    assert b"REG-ATTENDANCE-REPORT-2" in response.data
+    assert b"50.0%" in response.data
+    assert b"33.3%" in response.data
+    assert b"2026-11-25" not in response.data
+    assert b"Marks recorded" in response.data
+
+
+def test_teacher_attendance_report_only_lists_assigned_classes(teacher_client):
+    client, school, _, primary_one_id = teacher_client
+    school_id = school["school_id"]
+    primary_two = next(
+        row for row in database.get_school_classes(school_id)
+        if row["name"] == "Primary 2"
+    )
+    assigned_student = database.create_student(
+        school_id, "REG-REPORT-ASSIGNED", "Assigned Class Student"
+    )
+    unassigned_student = database.create_student(
+        school_id, "REG-REPORT-UNASSIGNED", "Unassigned Class Student"
+    )
+    database.enroll_student(
+        assigned_student, primary_one_id, school["academic_year_id"],
+        "2026-09-03"
+    )
+    database.enroll_student(
+        unassigned_student, primary_two["id"], school["academic_year_id"],
+        "2026-09-03"
+    )
+
+    response = client.get(
+        "/attendance/report?start_date=2026-11-01&end_date=2026-11-30"
+    )
+
+    assert response.status_code == 200
+    assert b"REG-REPORT-ASSIGNED" in response.data
+    assert b"REG-REPORT-UNASSIGNED" not in response.data
+
+
 def test_admin_pages_redirect_anonymous_visitors_to_login():
     client = web_app.app.test_client()
 

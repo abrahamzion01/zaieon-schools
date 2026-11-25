@@ -1128,6 +1128,57 @@ def save_class_attendance(school_id, academic_year_id, class_id,
     return {"saved": saved, "cleared": cleared}
 
 
+def get_attendance_report(school_id, academic_year_id, start_date, end_date,
+                          class_id=None, teacher_id=None):
+    """Summarize marked attendance for each active current-year enrollment."""
+    start_date = _validated_date(start_date, "Report start date")
+    end_date = _validated_date(end_date, "Report end date")
+    if start_date > end_date:
+        raise ValueError("The report start date must be on or before its end date.")
+
+    with _connection_scope() as connection:
+        return connection.execute("""
+            SELECT enrollments.id AS enrollment_id,
+                   students.full_name AS name,
+                   students.registration_number AS reg_no,
+                   school_classes.id AS class_id,
+                   school_classes.name AS class_name,
+                   COUNT(attendance_records.id) AS marked_days,
+                   COALESCE(SUM(attendance_records.status = 'Present'), 0) AS present,
+                   COALESCE(SUM(attendance_records.status = 'Absent'), 0) AS absent,
+                   COALESCE(SUM(attendance_records.status = 'Late'), 0) AS late
+            FROM enrollments
+            JOIN students ON students.id = enrollments.student_id
+                         AND students.school_id = enrollments.school_id
+            JOIN school_classes ON school_classes.id = enrollments.class_id
+                                AND school_classes.school_id = enrollments.school_id
+            LEFT JOIN attendance_records
+              ON attendance_records.school_id = enrollments.school_id
+             AND attendance_records.enrollment_id = enrollments.id
+             AND attendance_records.attendance_date BETWEEN ? AND ?
+            WHERE enrollments.school_id = ?
+              AND enrollments.academic_year_id = ?
+              AND enrollments.status = 'active'
+              AND students.is_active = 1
+              AND school_classes.is_active = 1
+              AND (? IS NULL OR school_classes.id = ?)
+              AND (? IS NULL OR EXISTS (
+                    SELECT 1 FROM teacher_class_assignments
+                    WHERE teacher_class_assignments.school_id = enrollments.school_id
+                      AND teacher_class_assignments.teacher_id = ?
+                      AND teacher_class_assignments.class_id = enrollments.class_id
+                      AND teacher_class_assignments.academic_year_id = enrollments.academic_year_id
+              ))
+            GROUP BY enrollments.id, students.full_name,
+                     students.registration_number, school_classes.id,
+                     school_classes.name
+            ORDER BY school_classes.sort_order, school_classes.name,
+                     students.full_name, students.registration_number
+        """, (start_date.isoformat(), end_date.isoformat(), school_id,
+              academic_year_id, class_id, class_id,
+              teacher_id, teacher_id)).fetchall()
+
+
 def get_results_for_term(school_id, academic_year_id, term_id,
                          teacher_id=None, class_id=None):
     """Return enrolled students with their subject marks and term totals."""
