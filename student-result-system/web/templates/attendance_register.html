@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance | ZAIEON Schools</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-body">
+    <aside class="sidebar">
+        <a class="sidebar-brand" href="{{ url_for('dashboard') }}">
+            <img src="{{ url_for('static', filename='images/zaieon-schools-logo.png') }}" alt="">
+            <div><h2>ZAIEON</h2><span>SCHOOLS</span></div>
+        </a>
+        {% if is_teacher %}
+            <p class="nav-label">TEACHER MENU</p>
+            <nav class="sidebar-nav">
+                <a href="{{ url_for('dashboard') }}" class="nav-link"><span>▦</span> Dashboard</a>
+                <a href="{{ url_for('teacher_results') }}" class="nav-link"><span>▤</span> Enter Results</a>
+                <a href="{{ url_for('attendance_overview') }}" class="nav-link active"><span>◷</span> Attendance</a>
+            </nav>
+        {% else %}
+            <p class="nav-label">MAIN MENU</p>
+            <nav class="sidebar-nav">
+                <a href="{{ url_for('dashboard') }}" class="nav-link"><span>▦</span> Dashboard</a>
+                <a href="{{ url_for('register_student') }}" class="nav-link"><span>♙</span> Students</a>
+                <a href="{{ url_for('import_legacy_students') }}" class="nav-link"><span>⇧</span> Import Students</a>
+                <a href="{{ url_for('manage_results') }}" class="nav-link"><span>▤</span> Academic Results</a>
+                <a href="{{ url_for('manage_subjects') }}" class="nav-link"><span>▧</span> Subjects</a>
+                <a href="{{ url_for('manage_academic_years') }}" class="nav-link"><span>▦</span> Academic Years</a>
+                <a href="{{ url_for('manage_terms') }}" class="nav-link"><span>▦</span> Academic Terms</a>
+                <a href="{{ url_for('promote_students') }}" class="nav-link"><span>⇧</span> Promote Students</a>
+                <a href="{{ url_for('attendance_overview') }}" class="nav-link active"><span>◷</span> Attendance</a>
+                <a href="{{ url_for('manage_teachers') }}" class="nav-link"><span>♧</span> Teachers</a>
+            </nav>
+        {% endif %}
+        <div class="sidebar-bottom">
+            <a href="{{ url_for('logout') }}" class="logout-link">⇥ Sign Out</a>
+            <p>Powered by ZAIEON Technologies</p>
+        </div>
+    </aside>
+
+    <main class="dashboard-content">
+        <header class="dashboard-topbar">
+            <div>
+                <h1>Attendance</h1>
+                <p>{{ school.school_name }} · {{ school.academic_year_name }}</p>
+            </div>
+            <div class="admin-profile">
+                <div class="profile-avatar">{{ session.get('username', 'A' if not is_teacher else 'T')[:1]|upper }}</div>
+                <div><strong>{{ session.get('username', 'Administrator' if not is_teacher else 'Teacher') }}</strong><span>{{ 'Teacher' if is_teacher else 'Administrator' }}</span></div>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}<div class="flash-message">{{ message }}</div>{% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <section class="management-panel">
+            <h2>Choose a class and date</h2>
+            <p>Attendance is recorded against students enrolled in this school and academic year.</p>
+            {% if classes %}
+                <form class="management-form" method="get" action="{{ url_for('attendance_overview') }}">
+                    <div class="form-field">
+                        <label for="attendance-date">Date</label>
+                        <input id="attendance-date" type="date" name="date" value="{{ attendance_date }}" min="{{ school.start_date }}" max="{{ school.end_date }}" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="attendance-class">Class</label>
+                        <select id="attendance-class" name="class_id" required>
+                            {% for school_class in classes %}
+                                <option value="{{ school_class.id }}" {{ 'selected' if selected_class_id == school_class.id else '' }}>{{ school_class.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button class="management-submit" type="submit">Load Roll Call</button>
+                </form>
+            {% elif is_teacher %}
+                <p class="management-empty">You do not have an active class assignment for this academic year.</p>
+            {% else %}
+                <p class="management-empty">Create an active class before marking attendance.</p>
+            {% endif %}
+        </section>
+
+        {% if selected_class %}
+            <section class="management-panel">
+                <h2>Daily roll call · {{ selected_class.name }}</h2>
+                <div class="attendance-summary">
+                    <div class="attendance-summary-card"><strong>{{ summary.total }}</strong><span>Students</span></div>
+                    <div class="attendance-summary-card"><strong>{{ summary.present }}</strong><span>Present</span></div>
+                    <div class="attendance-summary-card"><strong>{{ summary.absent }}</strong><span>Absent</span></div>
+                    <div class="attendance-summary-card"><strong>{{ summary.late }}</strong><span>Late</span></div>
+                    <div class="attendance-summary-card"><strong>{{ summary.unmarked }}</strong><span>Not marked</span></div>
+                </div>
+                {% if attendance_records %}
+                    <form method="post" action="{{ url_for('attendance_overview') }}" class="attendance-register-form">
+                        <input type="hidden" name="class_id" value="{{ selected_class_id }}">
+                        <input type="hidden" name="date" value="{{ attendance_date }}">
+                        <p class="attendance-help">Choose Present, Absent, or Late for each student. Leaving a student as Not marked removes any mark saved for this date.</p>
+                        <div class="table-container">
+                            <table class="attendance-table">
+                                <thead><tr><th>Student</th><th>Registration Number</th><th>Attendance</th><th>Marked By</th></tr></thead>
+                                <tbody>
+                                    {% for record in attendance_records %}
+                                        <tr>
+                                            <td>{{ record.name }}</td>
+                                            <td>{{ record.reg_no }}</td>
+                                            <td>
+                                                <input type="hidden" name="enrollment_id" value="{{ record.enrollment_id }}">
+                                                <select name="status_{{ record.enrollment_id }}" aria-label="Attendance for {{ record.name }}">
+                                                    <option value="" {{ 'selected' if record.status is none else '' }}>Not marked</option>
+                                                    {% for status in ['Present', 'Absent', 'Late'] %}
+                                                        <option value="{{ status }}" {{ 'selected' if record.status == status else '' }}>{{ status }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </td>
+                                            <td>{{ record.marked_by or '—' }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <button class="management-submit" type="submit">Save Attendance</button>
+                    </form>
+                {% else %}
+                    <p class="management-empty">No active students are enrolled in this class for the current academic year.</p>
+                {% endif %}
+            </section>
+        {% endif %}
+
+        <footer class="dashboard-footer">
+            <p>© 2026 ZAIEON Schools. All rights reserved.</p>
+            <p>Empowering Schools. Developing Futures.</p>
+        </footer>
+    </main>
+</body>
+</html>
