@@ -162,6 +162,19 @@ def initialize_database():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS school_class_subjects (
+            school_id INTEGER NOT NULL,
+            class_id INTEGER NOT NULL,
+            subject TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (school_id, class_id, subject),
+            CHECK (length(trim(subject)) > 0),
+            FOREIGN KEY (school_id, class_id)
+                REFERENCES school_classes(school_id, id) ON DELETE CASCADE
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS students (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             school_id INTEGER NOT NULL,
@@ -530,6 +543,49 @@ def get_school_classes(school_id):
             WHERE school_id = ? AND is_active = 1
             ORDER BY sort_order, name
         """, (school_id,)).fetchall()
+
+
+def get_school_class_subjects(school_id, class_id):
+    """Return a class's saved subject list, or None before it is configured."""
+    with _connection_scope() as connection:
+        class_exists = connection.execute("""
+            SELECT 1 FROM school_classes
+            WHERE school_id = ? AND id = ? AND is_active = 1
+        """, (school_id, class_id)).fetchone()
+        if class_exists is None:
+            raise ValueError("Choose an active class in this school.")
+        subjects = connection.execute("""
+            SELECT subject FROM school_class_subjects
+            WHERE school_id = ? AND class_id = ?
+            ORDER BY subject COLLATE NOCASE
+        """, (school_id, class_id)).fetchall()
+        return [row["subject"] for row in subjects] or None
+
+
+def save_school_class_subjects(school_id, class_id, subjects):
+    """Replace the offered subjects for one class within the selected school."""
+    subjects = list(dict.fromkeys(
+        subject.strip() for subject in subjects
+        if isinstance(subject, str) and subject.strip()
+    ))
+    if not subjects:
+        raise ValueError("Choose at least one subject for this class.")
+
+    with _connection_scope() as connection:
+        class_exists = connection.execute("""
+            SELECT 1 FROM school_classes
+            WHERE school_id = ? AND id = ? AND is_active = 1
+        """, (school_id, class_id)).fetchone()
+        if class_exists is None:
+            raise ValueError("Choose an active class in this school.")
+        connection.execute("""
+            DELETE FROM school_class_subjects
+            WHERE school_id = ? AND class_id = ?
+        """, (school_id, class_id))
+        connection.executemany("""
+            INSERT INTO school_class_subjects (school_id, class_id, subject)
+            VALUES (?, ?, ?)
+        """, [(school_id, class_id, subject) for subject in subjects])
 
 
 def preview_legacy_student_import(school_id, academic_year_id, records):

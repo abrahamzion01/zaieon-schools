@@ -671,6 +671,42 @@ footer {
     gap: 8px 14px;
 }
 
+.subject-offering-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px 14px;
+}
+
+.subject-offering-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 10px 12px;
+    color: #344054;
+    font-size: 13px;
+    line-height: 1.35;
+    border: 1px solid #E8EDF3;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.subject-offering-choice input[type="checkbox"] {
+    width: 16px;
+    min-height: 16px;
+    margin: 1px 0 0;
+    accent-color: #18A6A0;
+    flex: 0 0 16px;
+}
+
+.subject-offerings-form {
+    align-items: stretch;
+}
+
+.subject-offerings-form .subject-group,
+.subject-offerings-form > button {
+    flex: 1 1 100%;
+}
+
 .subject-score-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 90px;
