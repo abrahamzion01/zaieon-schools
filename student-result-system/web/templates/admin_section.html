@@ -428,6 +428,57 @@
 
         {% elif page == 'teachers' %}
             <section class="management-panel">
+                <h2>Carry assignments into {{ academic_year_name }}</h2>
+                <p>Review class assignments from an earlier year and copy the ones you still need. Assignments already present this year are left unchanged.</p>
+                {% if previous_years %}
+                    <form class="management-form" method="get" action="{{ url_for('manage_teachers') }}">
+                        <div class="form-field">
+                            <label for="assignment-source-year">Previous academic year</label>
+                            <select id="assignment-source-year" name="source_year_id" required>
+                                {% for year in previous_years %}
+                                    <option value="{{ year.id }}" {{ 'selected' if source_year_id == year.id else '' }}>{{ year.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button class="management-submit" type="submit">Load Assignments</button>
+                    </form>
+                    {% if source_year %}
+                        <h2>Assignments from {{ source_year.name }}</h2>
+                        {% if source_assignments %}
+                            <form class="management-form assignment-copy-form" method="post" action="{{ url_for('manage_teachers') }}">
+                                <input type="hidden" name="action" value="copy_assignments">
+                                <input type="hidden" name="source_year_id" value="{{ source_year.id }}">
+                                <div class="table-container">
+                                    <table>
+                                        <thead><tr><th>Copy</th><th>Teacher</th><th>Class</th><th>Status</th></tr></thead>
+                                        <tbody>
+                                            {% for assignment in source_assignments %}
+                                                <tr>
+                                                    {% if assignment.already_assigned %}
+                                                        <td>—</td><td>{{ assignment.username }}</td><td>{{ assignment.class_name }}</td><td>Already assigned</td>
+                                                    {% elif not assignment.class_active %}
+                                                        <td>—</td><td>{{ assignment.username }}</td><td>{{ assignment.class_name }}</td><td>Class is inactive</td>
+                                                    {% else %}
+                                                        <td><input type="checkbox" name="assignment" value="{{ assignment.teacher_id }}:{{ assignment.class_id }}" checked aria-label="Copy {{ assignment.username }} assignment for {{ assignment.class_name }}"></td>
+                                                        <td>{{ assignment.username }}</td><td>{{ assignment.class_name }}</td><td>Ready to copy</td>
+                                                    {% endif %}
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <button class="management-submit" type="submit">Copy Selected Assignments</button>
+                            </form>
+                        {% else %}
+                            <p class="management-empty">There are no teacher assignments in {{ source_year.name }}.</p>
+                        {% endif %}
+                    {% endif %}
+                {% else %}
+                    <p class="management-empty">There is no earlier academic year with teacher assignments to carry forward.</p>
+                {% endif %}
+            </section>
+
+            <section class="management-panel">
                 <h2>Assign a class</h2>
                 {% if teachers %}
                     <form class="management-form" method="post" action="{{ url_for('manage_teachers') }}">

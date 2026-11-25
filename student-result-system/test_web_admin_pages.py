@@ -404,6 +404,81 @@ def test_teacher_page_assigns_a_class(admin_client):
     assert [row["class_name"] for row in assignments] == ["JSS 1"]
 
 
+def test_admin_copies_previous_teacher_assignments_to_current_year(admin_client):
+    with admin_client.session_transaction() as session:
+        school_id = session["school_id"]
+    source_year = database.get_school_context(school_id)
+    classes = database.get_school_classes(school_id)
+    primary_one = next(row for row in classes if row["name"] == "Primary 1")
+    primary_two = next(row for row in classes if row["name"] == "Primary 2")
+    assert authentication.register_user(
+        "rollover-teacher", "TeacherPassword123", "teacher"
+    )
+    teacher = next(
+        row for row in database.get_teachers_for_school(school_id)
+        if row["username"] == "rollover-teacher"
+    )
+    database.assign_teacher_to_school_class(
+        school_id, teacher["id"], primary_one["id"],
+        source_year["academic_year_id"]
+    )
+    current_year_id = database.create_academic_year(
+        school_id, "2027/2028", "2027-09-01", "2028-07-31",
+        is_current=True,
+    )
+    database.create_academic_year(
+        school_id, "2028/2029", "2028-09-01", "2029-07-31"
+    )
+    database.assign_teacher_to_school_class(
+        school_id, teacher["id"], primary_two["id"], current_year_id
+    )
+
+    page = admin_client.get(
+        f"/teachers?source_year_id={source_year['academic_year_id']}"
+    )
+    assert page.status_code == 200
+    assert b"Carry assignments into 2027/2028" in page.data
+    assert b"2028/2029" not in page.data
+    assert b"rollover-teacher" in page.data
+
+    invalid_batch = admin_client.post("/teachers", data={
+        "action": "copy_assignments",
+        "source_year_id": str(source_year["academic_year_id"]),
+        "assignment": [
+            f"{teacher['id']}:{primary_one['id']}",
+            f"99999:{primary_two['id']}",
+        ],
+    }, follow_redirects=True)
+    assert b"A selected assignment was not found in the previous year." in invalid_batch.data
+    assert [row["class_name"] for row in database.get_teacher_class_assignments(
+        school_id, current_year_id
+    )] == ["Primary 2"]
+
+    copied = admin_client.post("/teachers", data={
+        "action": "copy_assignments",
+        "source_year_id": str(source_year["academic_year_id"]),
+        "assignment": [f"{teacher['id']}:{primary_one['id']}"]
+    }, follow_redirects=True)
+    assert b"Copied 1 teacher assignment." in copied.data
+    current_assignments = database.get_teacher_class_assignments(
+        school_id, current_year_id
+    )
+    assert {row["class_name"] for row in current_assignments} == {
+        "Primary 1", "Primary 2"
+    }
+
+    repeated = admin_client.post("/teachers", data={
+        "action": "copy_assignments",
+        "source_year_id": str(source_year["academic_year_id"]),
+        "assignment": [f"{teacher['id']}:{primary_one['id']}"]
+    }, follow_redirects=True)
+    assert b"No new teacher assignments were copied." in repeated.data
+    assert b"1 selected assignment was already present." in repeated.data
+    assert len(database.get_teacher_class_assignments(
+        school_id, current_year_id
+    )) == 2
+
+
 def test_teacher_can_enter_results_only_for_assigned_class(teacher_client):
     client, school, teacher_id, primary_one_id = teacher_client
     school_id = school["school_id"]

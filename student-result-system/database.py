@@ -1088,6 +1088,81 @@ def get_teacher_class_assignments(school_id, academic_year_id,
         """, (school_id, academic_year_id, teacher_id, teacher_id)).fetchall()
 
 
+def copy_teacher_assignments_to_current_year(school_id, source_year_id,
+                                            target_year_id, assignments):
+    """Copy selected previous-year teacher/class pairs into the current year."""
+    normalized = list(dict.fromkeys(
+        (int(teacher_id), int(class_id))
+        for teacher_id, class_id in assignments
+    ))
+    if not normalized:
+        raise ValueError("Select at least one teacher assignment to copy.")
+
+    copied = 0
+    already_assigned = 0
+    with _connection_scope() as connection:
+        source_year = connection.execute("""
+            SELECT end_date FROM academic_years
+            WHERE school_id = ? AND id = ? AND is_current = 0
+        """, (school_id, source_year_id)).fetchone()
+        target_year = connection.execute("""
+            SELECT id, start_date FROM academic_years
+            WHERE school_id = ? AND id = ? AND is_current = 1
+        """, (school_id, target_year_id)).fetchone()
+        if source_year is None:
+            raise ValueError("Choose a previous academic year in this school.")
+        if target_year is None:
+            raise ValueError("Assignments must be copied into this school's current year.")
+        if source_year["end_date"] >= target_year["start_date"]:
+            raise ValueError("Choose an academic year that ended before the current year began.")
+
+        for teacher_id, class_id in normalized:
+            source_assignment = connection.execute("""
+                SELECT 1 FROM teacher_class_assignments
+                WHERE school_id = ? AND teacher_id = ? AND class_id = ?
+                  AND academic_year_id = ?
+            """, (school_id, teacher_id, class_id, source_year_id)).fetchone()
+            if source_assignment is None:
+                raise ValueError("A selected assignment was not found in the previous year.")
+
+            teacher = connection.execute("""
+                SELECT users.role, school_memberships.role AS membership_role
+                FROM users
+                JOIN school_memberships
+                  ON school_memberships.user_id = users.id
+                 AND school_memberships.school_id = ?
+                WHERE users.id = ?
+            """, (school_id, teacher_id)).fetchone()
+            if (teacher is None or teacher["role"] != "teacher"
+                    or teacher["membership_role"] != "teacher"):
+                raise ValueError("A selected account is no longer a teacher in this school.")
+
+            school_class = connection.execute("""
+                SELECT 1 FROM school_classes
+                WHERE school_id = ? AND id = ? AND is_active = 1
+            """, (school_id, class_id)).fetchone()
+            if school_class is None:
+                raise ValueError("A selected class is no longer active in this school.")
+
+            existing = connection.execute("""
+                SELECT 1 FROM teacher_class_assignments
+                WHERE school_id = ? AND teacher_id = ? AND class_id = ?
+                  AND academic_year_id = ?
+            """, (school_id, teacher_id, class_id, target_year_id)).fetchone()
+            if existing:
+                already_assigned += 1
+                continue
+
+            connection.execute("""
+                INSERT INTO teacher_class_assignments (
+                    school_id, teacher_id, class_id, academic_year_id
+                ) VALUES (?, ?, ?, ?)
+            """, (school_id, teacher_id, class_id, target_year_id))
+            copied += 1
+
+    return {"copied": copied, "already_assigned": already_assigned}
+
+
 def get_teachers():
     connection = get_connection()
 
