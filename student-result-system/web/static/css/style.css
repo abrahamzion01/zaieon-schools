@@ -824,6 +824,40 @@ footer {
     font: inherit;
 }
 
+.attendance-report-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.attendance-report-heading h2,
+.attendance-report-heading p {
+    margin-bottom: 6px;
+}
+
+.attendance-report-heading p {
+    color: #718096;
+    font-size: 14px;
+}
+
+.attendance-report-link {
+    flex: 0 0 auto;
+    text-decoration: none;
+}
+
+.attendance-report-table {
+    min-width: 850px;
+}
+
+@media (max-width: 700px) {
+    .attendance-report-heading {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
+
 .subject-score-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 90px;

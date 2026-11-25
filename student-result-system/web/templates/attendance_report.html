@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Report | ZAIEON Schools</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-body">
+    <aside class="sidebar">
+        <a class="sidebar-brand" href="{{ url_for('dashboard') }}">
+            <img src="{{ url_for('static', filename='images/zaieon-schools-logo.png') }}" alt="">
+            <div><h2>ZAIEON</h2><span>SCHOOLS</span></div>
+        </a>
+        {% if is_teacher %}
+            <p class="nav-label">TEACHER MENU</p>
+            <nav class="sidebar-nav">
+                <a href="{{ url_for('dashboard') }}" class="nav-link"><span>▦</span> Dashboard</a>
+                <a href="{{ url_for('teacher_results') }}" class="nav-link"><span>▤</span> Enter Results</a>
+                <a href="{{ url_for('attendance_overview') }}" class="nav-link"><span>◷</span> Daily Attendance</a>
+                <a href="{{ url_for('attendance_report') }}" class="nav-link active"><span>▤</span> Attendance Report</a>
+            </nav>
+        {% else %}
+            <p class="nav-label">MAIN MENU</p>
+            <nav class="sidebar-nav">
+                <a href="{{ url_for('dashboard') }}" class="nav-link"><span>▦</span> Dashboard</a>
+                <a href="{{ url_for('register_student') }}" class="nav-link"><span>♙</span> Students</a>
+                <a href="{{ url_for('import_legacy_students') }}" class="nav-link"><span>⇧</span> Import Students</a>
+                <a href="{{ url_for('manage_results') }}" class="nav-link"><span>▤</span> Academic Results</a>
+                <a href="{{ url_for('manage_subjects') }}" class="nav-link"><span>▧</span> Subjects</a>
+                <a href="{{ url_for('manage_academic_years') }}" class="nav-link"><span>▦</span> Academic Years</a>
+                <a href="{{ url_for('manage_terms') }}" class="nav-link"><span>▦</span> Academic Terms</a>
+                <a href="{{ url_for('promote_students') }}" class="nav-link"><span>⇧</span> Promote Students</a>
+                <a href="{{ url_for('attendance_overview') }}" class="nav-link"><span>◷</span> Daily Attendance</a>
+                <a href="{{ url_for('attendance_report') }}" class="nav-link active"><span>▤</span> Attendance Report</a>
+                <a href="{{ url_for('manage_teachers') }}" class="nav-link"><span>♧</span> Teachers</a>
+            </nav>
+        {% endif %}
+        <div class="sidebar-bottom">
+            <a href="{{ url_for('logout') }}" class="logout-link">⇥ Sign Out</a>
+            <p>Powered by ZAIEON Technologies</p>
+        </div>
+    </aside>
+
+    <main class="dashboard-content">
+        <header class="dashboard-topbar">
+            <div>
+                <h1>Attendance Report</h1>
+                <p>{{ school.school_name }} · {{ school.academic_year_name }}</p>
+            </div>
+            <div class="admin-profile">
+                <div class="profile-avatar">{{ session.get('username', 'A' if not is_teacher else 'T')[:1]|upper }}</div>
+                <div><strong>{{ session.get('username', 'Administrator' if not is_teacher else 'Teacher') }}</strong><span>{{ 'Teacher' if is_teacher else 'Administrator' }}</span></div>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}<div class="flash-message">{{ message }}</div>{% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <section class="management-panel">
+            <div class="attendance-report-heading">
+                <div>
+                    <h2>Attendance by student</h2>
+                    <p>Review attendance marks recorded during a selected date range.</p>
+                </div>
+                <a class="management-submit attendance-report-link" href="{{ url_for('attendance_overview', class_id=selected_class_id) }}">Open Daily Attendance</a>
+            </div>
+            <form class="management-form" method="get" action="{{ url_for('attendance_report') }}">
+                <div class="form-field">
+                    <label for="report-start-date">From</label>
+                    <input id="report-start-date" type="date" name="start_date" value="{{ start_date }}" min="{{ school.start_date }}" max="{{ school.end_date }}" required>
+                </div>
+                <div class="form-field">
+                    <label for="report-end-date">To</label>
+                    <input id="report-end-date" type="date" name="end_date" value="{{ end_date }}" min="{{ school.start_date }}" max="{{ school.end_date }}" required>
+                </div>
+                <div class="form-field">
+                    <label for="report-class">Class</label>
+                    <select id="report-class" name="class_id">
+                        <option value="">All available classes</option>
+                        {% for school_class in classes %}
+                            <option value="{{ school_class.id }}" {{ 'selected' if selected_class_id == school_class.id else '' }}>{{ school_class.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button class="management-submit" type="submit">Run Report</button>
+            </form>
+        </section>
+
+        <section class="management-panel">
+            <div class="attendance-summary">
+                <div class="attendance-summary-card"><strong>{{ totals.students }}</strong><span>Students</span></div>
+                <div class="attendance-summary-card"><strong>{{ totals.marked_days }}</strong><span>Marks recorded</span></div>
+                <div class="attendance-summary-card"><strong>{{ totals.present }}</strong><span>Present</span></div>
+                <div class="attendance-summary-card"><strong>{{ totals.absent }}</strong><span>Absent</span></div>
+                <div class="attendance-summary-card"><strong>{{ totals.late }}</strong><span>Late</span></div>
+                <div class="attendance-summary-card"><strong>{{ ('%.1f%%'|format(totals.attendance_rate)) if totals.attendance_rate is not none else '—' }}</strong><span>Overall rate</span></div>
+            </div>
+            <p class="attendance-help">Attendance rate is present marks divided by marks recorded. Unmarked days are excluded.</p>
+            {% if students %}
+                <div class="table-container">
+                    <table class="attendance-table attendance-report-table">
+                        <thead><tr><th>Student</th><th>Registration Number</th><th>Class</th><th>Present</th><th>Absent</th><th>Late</th><th>Marks Recorded</th><th>Attendance Rate</th></tr></thead>
+                        <tbody>
+                            {% for student in students %}
+                                <tr>
+                                    <td>{{ student.name }}</td>
+                                    <td>{{ student.reg_no }}</td>
+                                    <td>{{ student.class_name }}</td>
+                                    <td>{{ student.present }}</td>
+                                    <td>{{ student.absent }}</td>
+                                    <td>{{ student.late }}</td>
+                                    <td>{{ student.marked_days }}</td>
+                                    <td>{{ ('%.1f%%'|format(student.attendance_rate)) if student.attendance_rate is not none else '—' }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="management-empty">No active students are available for this report.</p>
+            {% endif %}
+        </section>
+
+        <footer class="dashboard-footer">
+            <p>© 2026 ZAIEON Schools. All rights reserved.</p>
+            <p>Empowering Schools. Developing Futures.</p>
+        </footer>
+    </main>
+</body>
+</html>

@@ -1157,6 +1157,96 @@ def attendance_overview():
         summary=summary,
     )
 
+
+@app.route("/attendance/report")
+@school_staff_required
+def attendance_report():
+    school_id = session["school_id"]
+    school = database.get_school_context(school_id)
+    all_classes = database.get_school_classes(school_id)
+    is_teacher = session.get("role") == "teacher"
+    teacher_id = session["user_id"] if is_teacher else None
+    if is_teacher:
+        assignments = database.get_teacher_class_assignments(
+            school_id, school["academic_year_id"], teacher_id
+        )
+        assigned_class_ids = {assignment["class_id"] for assignment in assignments}
+        classes = [school_class for school_class in all_classes
+                   if school_class["id"] in assigned_class_ids]
+    else:
+        classes = all_classes
+
+    year_start = date.fromisoformat(school["start_date"])
+    year_end = date.fromisoformat(school["end_date"])
+    default_start = year_start.isoformat()
+    default_end = min(max(date.today(), year_start), year_end).isoformat()
+    requested_start = request.args.get("start_date", default_start)
+    requested_end = request.args.get("end_date", default_end)
+    try:
+        start_date = date.fromisoformat(requested_start)
+        end_date = date.fromisoformat(requested_end)
+    except (TypeError, ValueError):
+        start_date = date.fromisoformat(default_start)
+        end_date = date.fromisoformat(default_end)
+        flash("Choose valid report dates.")
+
+    if not (year_start <= start_date <= year_end
+            and year_start <= end_date <= year_end):
+        start_date = date.fromisoformat(default_start)
+        end_date = date.fromisoformat(default_end)
+        flash("Report dates must fall within the current academic year.")
+    if start_date > end_date:
+        start_date = date.fromisoformat(default_start)
+        end_date = date.fromisoformat(default_end)
+        flash("The start date must be on or before the end date.")
+
+    class_filter = request.args.get("class_id", "").strip()
+    selected_class_id = None
+    if class_filter:
+        try:
+            requested_class_id = int(class_filter)
+        except ValueError:
+            requested_class_id = None
+        if any(row["id"] == requested_class_id for row in classes):
+            selected_class_id = requested_class_id
+        else:
+            flash("Choose a class available to your account.")
+
+    report_rows = database.get_attendance_report(
+        school_id, school["academic_year_id"], start_date.isoformat(),
+        end_date.isoformat(), class_id=selected_class_id,
+        teacher_id=teacher_id,
+    )
+    students = []
+    totals = {"marked_days": 0, "present": 0, "absent": 0, "late": 0}
+    for row in report_rows:
+        student = dict(row)
+        student["attendance_rate"] = (
+            round(student["present"] * 100 / student["marked_days"], 1)
+            if student["marked_days"] else None
+        )
+        students.append(student)
+        for key in totals:
+            totals[key] += student[key]
+    totals["students"] = len(students)
+    totals["attendance_rate"] = (
+        round(totals["present"] * 100 / totals["marked_days"], 1)
+        if totals["marked_days"] else None
+    )
+
+    return render_template(
+        "attendance_report.html",
+        school=school,
+        is_teacher=is_teacher,
+        classes=classes,
+        selected_class_id=selected_class_id,
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        students=students,
+        totals=totals,
+    )
+
+
 @app.route("/register", methods=["GET", "POST"])
 @admin_required
 def register_student():
