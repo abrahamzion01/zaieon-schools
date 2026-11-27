@@ -534,6 +534,26 @@ def test_teacher_can_enter_results_only_for_assigned_class(teacher_client):
     )
     assert result_rows[0]["subjects"]["Mathematics"] == 91
 
+
+    # Attempt to submit results for an unassigned class through the route.
+    rejected = client.post("/teacher/results", data={
+        "class_id": str(primary_two["id"]),
+        "term_id": str(term_id),
+        "reg_no": "REG-OTHER",
+        "subject": ["Mathematics"],
+        "score_Mathematics": "90",
+    }, follow_redirects=True)
+
+    assert rejected.status_code == 200
+    assert b"Choose one of your assigned classes." in rejected.data
+
+    unassigned_results = database.get_results_for_term(
+        school_id, school["academic_year_id"], term_id,
+        teacher_id=teacher_id, class_id=primary_two["id"]
+    )
+    assert unassigned_results == []
+
+
     with pytest.raises(ValueError, match="only for classes assigned"):
         database.create_student_term_results(
             school_id, school["academic_year_id"], "REG-OTHER", term_id,
@@ -1159,3 +1179,63 @@ def test_student_forced_password_change_and_portal_results(admin_client):
         "confirm_password": "AnotherPassword123",
     }, follow_redirects=True)
     assert b"Current password is incorrect." in voluntary_fail.data
+
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        "/results",
+        "/subjects",
+        "/terms",
+        "/academic-years",
+        "/promote-students",
+        "/students/import-legacy",
+        "/teachers",
+        "/register",
+    ],
+)
+def test_teacher_cannot_access_admin_only_pages(teacher_client, route):
+    client, *_ = teacher_client
+
+    response = client.get(route)
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/dashboard")
+
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        "/results",
+        "/teachers",
+        "/academic-years",
+        "/teacher/results",
+    ],
+)
+def test_student_cannot_access_staff_only_pages(admin_client, route):
+    assert authentication.register_user(
+    "student-test", "StudentPassword123", "student",
+    reg_no="TEST-STUDENT-001"
+    )
+
+    connection = database.get_connection()
+    try:
+        student_id = connection.execute(
+            "SELECT id FROM users WHERE username = ?",
+            ("student-test",),
+        ).fetchone()["id"]
+    finally:
+        connection.close()
+
+    with admin_client.session_transaction() as session:
+        session["user_id"] = student_id
+        session["username"] = "student-test"
+        session["role"] = "student"
+        session["must_change_password"] = False
+
+    response = admin_client.get(route)
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/dashboard")
